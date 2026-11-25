@@ -1,0 +1,11 @@
+{
+  "source": "Real `claude -p` run with --plugin-dir on the synthetic test project, 2026-11-25. Answer abridged (lines kept verbatim, tables flattened).",
+  "prompt": "Which endpoints of orders and payments are broken, and which does nobody call?",
+  "steps": [
+    "Skill api-dead-ends:api-health",
+    "ade · detect_project",
+    "ade · analyze_usage  orders  (Datadog APM, 90 days)",
+    "ade · analyze_usage  payments  (Prometheus, 30 days)"
+  ],
+  "answer": "I analysed only the exported files in observability/. Nothing was sent to production.\nBroken: orders DELETE /orders/{id} — 1,080 / 14,580 5xx (7.4%), about 12 a day for 90 days.\nBroken: payments POST /payments — no 502s until 2026-11-22, since then 60 a day (about 2.3% of payment creations). Check what changed around 2026-11-22.\nNot called in the window: orders POST /orders/{id}/repeat — zero calls in 90 days (confidence high). payments GET /payments/export — may be periodic; 30 days could miss it.\nUndocumented: orders GET /orders/export — 1,800 calls, Datadog records it as its own route, missing from routes.txt.\n\"Not seen\" doesn't prove an endpoint is dead. I haven't changed or deprecated anything."
+}

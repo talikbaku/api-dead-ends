@@ -1,0 +1,27 @@
+# api-dead-ends
+
+> Read-only CLI + MCP server + Claude Code plugin. Compares an OpenAPI spec (or a framework route list) with real API traffic aggregated from logs/APM/metrics, and lists: endpoints with server errors (5xx share), client errors (4xx), undocumented (shadow) endpoints, endpoints not called in the window (with confidence), deprecated endpoints still called. Numbers are computed by code, not by an LLM. "Not called" is a hint, never proof that an endpoint is dead.
+
+## Install
+- CLI: `npx api-dead-ends init` (Node.js >= 20, 22+ recommended, zero dependencies)
+- Claude Code: `/plugin marketplace add talikbaku/api-dead-ends` then `/plugin install api-dead-ends@api-dead-ends-marketplace`
+- MCP client: `{"mcpServers":{"ade":{"command":"npx","args":["-y","api-dead-ends@0.2.0","mcp"]}}}`
+
+## Main commands
+- `init` — scan repo, ask questions, write `.api-dead-ends/NEXT-STEPS.md` (`--yes`, `--json`, `--dry-run`, `--source`, `--service`, `--spec`, `--routes`, `--logs`, `--days`)
+- `query <source>` — print the query for elasticsearch, datadog, datadog-apm, prometheus (--preset), loki, appinsights, cloudwatch, athena, bigquery, newrelic, dynatrace, splunk
+- `convert <source> <file>` — saved response → usage table (method,path,calls,first_seen,last_seen,status)
+- `spec from-routes <routes.txt|json>` — OpenAPI from rails/flask/django/spring/gin/echo/laravel/express route lists
+- `report --usage usage.csv --spec openapi.json --days N --out dir/` — report.md + report.json; `--json` prints JSON; `--baseline` + `--fail-on new-shadow,deprecated-growth` for CI
+- `mcp` — stdio MCP server; tools: detect_project, setup_plan, build_query, spec_from_routes, analyze_usage
+
+## Rules for agents
+- Never treat "not called" as dead; state window and confidence; recommend, don't delete.
+- Never paste raw logs, bodies, tokens or customer data; work from usage tables and report.json.
+- Humans run queries against production; never send non-GET requests to production.
+
+## Docs
+- README: https://github.com/talikbaku/api-dead-ends#readme
+- More: https://github.com/talikbaku/api-dead-ends/blob/main/docs/MORE.md
+- Sources: https://github.com/talikbaku/api-dead-ends/blob/main/docs/SOURCES.md
+- MCP: https://github.com/talikbaku/api-dead-ends/blob/main/docs/MCP.md

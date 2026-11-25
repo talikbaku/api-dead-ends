@@ -1,0 +1,562 @@
+{
+  "schemaVersion": 1,
+  "api": {
+    "title": "Shop API (demo)",
+    "version": "1.4.2",
+    "base": "/api/v1"
+  },
+  "window": {
+    "days": 30,
+    "from": "2026-10-26T00:00:00.000Z",
+    "to": "2026-11-24T00:00:00.000Z",
+    "confidence": "low"
+  },
+  "totals": {
+    "operations": 26,
+    "requests": 4210931,
+    "rows": 30,
+    "used": 19,
+    "rare": 2,
+    "not_seen": 3,
+    "deprecated_in_use": 2,
+    "shadow": 3,
+    "shadowRequests": 36278,
+    "noise": 4,
+    "noiseRequests": 76754,
+    "serverErrors": 2,
+    "serverErrorsBelowThreshold": 3,
+    "clientErrors": 1,
+    "ambiguous": 0
+  },
+  "thresholds": {
+    "rare": 100,
+    "errorShare": 0.01,
+    "errorMin": 10
+  },
+  "endpoints": [
+    {
+      "method": "GET",
+      "path": "/products",
+      "operationId": "listProducts",
+      "deprecated": false,
+      "class": "used",
+      "calls": 1116763,
+      "first_seen": "2026-10-26T00:00:00.000Z",
+      "last_seen": "2026-11-24T00:00:00.000Z",
+      "status": {
+        "200": 1116763
+      },
+      "errors5xx": 0,
+      "periodicHint": false
+    },
+    {
+      "method": "GET",
+      "path": "/products/{id}",
+      "operationId": "getProduct",
+      "deprecated": false,
+      "class": "used",
+      "calls": 711787,
+      "first_seen": "2026-10-26T00:00:00.000Z",
+      "last_seen": "2026-11-24T00:00:00.000Z",
+      "status": {
+        "200": 703765,
+        "404": 8022
+      },
+      "errors5xx": 0,
+      "periodicHint": false
+    },
+    {
+      "method": "GET",
+      "path": "/products/search",
+      "operationId": "searchProducts",
+      "deprecated": false,
+      "class": "used",
+      "calls": 223226,
+      "first_seen": "2026-10-26T00:00:00.000Z",
+      "last_seen": "2026-11-24T00:00:00.000Z",
+      "status": {
+        "200": 222127,
+        "504": 1099
+      },
+      "errors5xx": 1099,
+      "periodicHint": false
+    },
+    {
+      "method": "GET",
+      "path": "/categories",
+      "operationId": "listCategories",
+      "deprecated": false,
+      "class": "used",
+      "calls": 253879,
+      "first_seen": "2026-10-26T00:00:00.000Z",
+      "last_seen": "2026-11-24T00:00:00.000Z",
+      "status": {
+        "200": 253879
+      },
+      "errors5xx": 0,
+      "periodicHint": false
+    },
+    {
+      "method": "GET",
+      "path": "/cart",
+      "operationId": "getCart",
+      "deprecated": false,
+      "class": "used",
+      "calls": 330589,
+      "first_seen": "2026-10-26T00:00:00.000Z",
+      "last_seen": "2026-11-24T00:00:00.000Z",
+      "status": {
+        "200": 330589
+      },
+      "errors5xx": 0,
+      "periodicHint": false
+    },
+    {
+      "method": "POST",
+      "path": "/cart/items",
+      "operationId": "addCartItem",
+      "deprecated": false,
+      "class": "used",
+      "calls": 141185,
+      "first_seen": "2026-10-26T00:00:00.000Z",
+      "last_seen": "2026-11-24T00:00:00.000Z",
+      "status": {
+        "200": 140317,
+        "400": 868
+      },
+      "errors5xx": 0,
+      "periodicHint": false
+    },
+    {
+      "method": "DELETE",
+      "path": "/cart/items/{itemId}",
+      "operationId": "removeCartItem",
+      "deprecated": false,
+      "class": "rare",
+      "calls": 53,
+      "first_seen": "2026-10-26T00:00:00.000Z",
+      "last_seen": "2026-11-24T00:00:00.000Z",
+      "status": {
+        "200": 53
+      },
+      "errors5xx": 0,
+      "periodicHint": false
+    },
+    {
+      "method": "GET",
+      "path": "/orders",
+      "operationId": "listOrders",
+      "deprecated": false,
+      "class": "used",
+      "calls": 85101,
+      "first_seen": "2026-10-26T00:00:00.000Z",
+      "last_seen": "2026-11-24T00:00:00.000Z",
+      "status": {
+        "200": 85101
+      },
+      "errors5xx": 0,
+      "periodicHint": false
+    },
+    {
+      "method": "POST",
+      "path": "/orders",
+      "operationId": "createOrder",
+      "deprecated": false,
+      "class": "used",
+      "calls": 80385,
+      "first_seen": "2026-10-26T00:00:00.000Z",
+      "last_seen": "2026-11-24T00:00:00.000Z",
+      "status": {
+        "201": 80072,
+        "500": 313
+      },
+      "errors5xx": 313,
+      "periodicHint": false
+    },
+    {
+      "method": "GET",
+      "path": "/orders/{id}",
+      "operationId": "getOrder",
+      "deprecated": false,
+      "class": "used",
+      "calls": 140150,
+      "first_seen": "2026-10-26T00:00:00.000Z",
+      "last_seen": "2026-11-24T00:00:00.000Z",
+      "status": {
+        "200": 139029,
+        "404": 1121
+      },
+      "errors5xx": 0,
+      "periodicHint": false
+    },
+    {
+      "method": "DELETE",
+      "path": "/orders/{id}",
+      "operationId": "cancelOrder",
+      "deprecated": false,
+      "class": "used",
+      "calls": 4459,
+      "first_seen": "2026-10-26T00:00:00.000Z",
+      "last_seen": "2026-11-24T00:00:00.000Z",
+      "status": {
+        "200": 4114,
+        "500": 345
+      },
+      "errors5xx": 345,
+      "periodicHint": false
+    },
+    {
+      "method": "POST",
+      "path": "/orders/{id}/repeat",
+      "operationId": "repeatOrder",
+      "deprecated": false,
+      "class": "not_seen",
+      "calls": 0,
+      "first_seen": "",
+      "last_seen": "",
+      "status": {},
+      "errors5xx": 0,
+      "periodicHint": false
+    },
+    {
+      "method": "POST",
+      "path": "/payments",
+      "operationId": "createPayment",
+      "deprecated": false,
+      "class": "used",
+      "calls": 76078,
+      "first_seen": "2026-10-26T00:00:00.000Z",
+      "last_seen": "2026-11-24T00:00:00.000Z",
+      "status": {
+        "200": 75866,
+        "502": 212
+      },
+      "errors5xx": 212,
+      "periodicHint": false
+    },
+    {
+      "method": "GET",
+      "path": "/payments/{id}/status",
+      "operationId": "paymentStatus",
+      "deprecated": false,
+      "class": "used",
+      "calls": 170876,
+      "first_seen": "2026-10-26T00:00:00.000Z",
+      "last_seen": "2026-11-24T00:00:00.000Z",
+      "status": {
+        "200": 170876
+      },
+      "errors5xx": 0,
+      "periodicHint": false
+    },
+    {
+      "method": "POST",
+      "path": "/payments/{id}/refund",
+      "operationId": "refundPayment",
+      "deprecated": false,
+      "class": "used",
+      "calls": 1056,
+      "first_seen": "2026-10-26T00:00:00.000Z",
+      "last_seen": "2026-11-24T00:00:00.000Z",
+      "status": {
+        "200": 1056
+      },
+      "errors5xx": 0,
+      "periodicHint": false
+    },
+    {
+      "method": "POST",
+      "path": "/auth/login",
+      "operationId": "login",
+      "deprecated": false,
+      "class": "used",
+      "calls": 91537,
+      "first_seen": "2026-10-26T00:00:00.000Z",
+      "last_seen": "2026-11-24T00:00:00.000Z",
+      "status": {
+        "200": 82216,
+        "401": 8175,
+        "429": 1146
+      },
+      "errors5xx": 0,
+      "periodicHint": false
+    },
+    {
+      "method": "POST",
+      "path": "/auth/refresh",
+      "operationId": "refreshToken",
+      "deprecated": false,
+      "class": "used",
+      "calls": 217128,
+      "first_seen": "2026-10-26T00:00:00.000Z",
+      "last_seen": "2026-11-24T00:00:00.000Z",
+      "status": {
+        "200": 171466,
+        "401": 45662
+      },
+      "errors5xx": 0,
+      "periodicHint": false
+    },
+    {
+      "method": "GET",
+      "path": "/users/me",
+      "operationId": "me",
+      "deprecated": false,
+      "class": "used",
+      "calls": 414655,
+      "first_seen": "2026-10-26T00:00:00.000Z",
+      "last_seen": "2026-11-24T00:00:00.000Z",
+      "status": {
+        "200": 414655
+      },
+      "errors5xx": 0,
+      "periodicHint": false
+    },
+    {
+      "method": "PATCH",
+      "path": "/users/me",
+      "operationId": "updateMe",
+      "deprecated": false,
+      "class": "used",
+      "calls": 5951,
+      "first_seen": "2026-10-26T00:00:00.000Z",
+      "last_seen": "2026-11-24T00:00:00.000Z",
+      "status": {
+        "200": 5097,
+        "400": 854
+      },
+      "errors5xx": 0,
+      "periodicHint": false
+    },
+    {
+      "method": "POST",
+      "path": "/promo/apply",
+      "operationId": "applyPromo",
+      "deprecated": false,
+      "class": "used",
+      "calls": 24541,
+      "first_seen": "2026-10-26T00:00:00.000Z",
+      "last_seen": "2026-11-24T00:00:00.000Z",
+      "status": {
+        "200": 18790,
+        "500": 5751
+      },
+      "errors5xx": 5751,
+      "periodicHint": false
+    },
+    {
+      "method": "GET",
+      "path": "/promo/{code}",
+      "operationId": "getPromo",
+      "deprecated": false,
+      "class": "used",
+      "calls": 319,
+      "first_seen": "2026-10-26T00:00:00.000Z",
+      "last_seen": "2026-11-03T00:00:00.000Z",
+      "status": {
+        "200": 319
+      },
+      "errors5xx": 0,
+      "periodicHint": false
+    },
+    {
+      "method": "GET",
+      "path": "/reports/monthly",
+      "operationId": "monthlyReport",
+      "deprecated": false,
+      "class": "rare",
+      "calls": 4,
+      "first_seen": "2026-11-01T00:00:00.000Z",
+      "last_seen": "2026-11-01T00:00:00.000Z",
+      "status": {
+        "200": 4
+      },
+      "errors5xx": 0,
+      "periodicHint": false
+    },
+    {
+      "method": "GET",
+      "path": "/export/orders.csv",
+      "operationId": "exportOrders",
+      "deprecated": false,
+      "class": "not_seen",
+      "calls": 0,
+      "first_seen": "",
+      "last_seen": "",
+      "status": {},
+      "errors5xx": 0,
+      "periodicHint": true
+    },
+    {
+      "method": "GET",
+      "path": "/admin/stats",
+      "operationId": "adminStats",
+      "deprecated": false,
+      "class": "not_seen",
+      "calls": 0,
+      "first_seen": "",
+      "last_seen": "",
+      "status": {},
+      "errors5xx": 0,
+      "periodicHint": false
+    },
+    {
+      "method": "GET",
+      "path": "/legacy/catalog",
+      "operationId": "legacyCatalog",
+      "deprecated": true,
+      "class": "deprecated_in_use",
+      "calls": 6826,
+      "first_seen": "2026-10-26T00:00:00.000Z",
+      "last_seen": "2026-11-24T00:00:00.000Z",
+      "status": {
+        "200": 6826
+      },
+      "errors5xx": 0,
+      "periodicHint": false
+    },
+    {
+      "method": "GET",
+      "path": "/v0/products",
+      "operationId": "v0Products",
+      "deprecated": true,
+      "class": "deprecated_in_use",
+      "calls": 1351,
+      "first_seen": "2026-10-26T00:00:00.000Z",
+      "last_seen": "2026-11-12T00:00:00.000Z",
+      "status": {
+        "200": 1351
+      },
+      "errors5xx": 0,
+      "periodicHint": false
+    }
+  ],
+  "shadow": [
+    {
+      "method": "GET",
+      "path": "/api/v1/products/{id}/reviews",
+      "calls": 34507,
+      "first_seen": "2026-10-26T00:00:00.000Z",
+      "last_seen": "2026-11-24T00:00:00.000Z",
+      "status": {
+        "200": 34507
+      },
+      "kind": "path_not_in_spec"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/orders/{id}/retry",
+      "calls": 1251,
+      "first_seen": "2026-10-26T00:00:00.000Z",
+      "last_seen": "2026-11-24T00:00:00.000Z",
+      "status": {
+        "200": 1251
+      },
+      "kind": "path_not_in_spec"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v2/products",
+      "calls": 520,
+      "first_seen": "2026-11-16T00:00:00.000Z",
+      "last_seen": "2026-11-24T00:00:00.000Z",
+      "status": {
+        "200": 520
+      },
+      "kind": "path_not_in_spec"
+    }
+  ],
+  "noise": [
+    {
+      "method": "OPTIONS",
+      "path": "/api/v1/orders",
+      "calls": 75367,
+      "first_seen": "2026-10-26T00:00:00.000Z",
+      "last_seen": "2026-11-24T00:00:00.000Z",
+      "status": {
+        "204": 75367
+      },
+      "kind": "preflight"
+    },
+    {
+      "method": "GET",
+      "path": "/wp-login.php",
+      "calls": 847,
+      "first_seen": "2026-10-26T00:00:00.000Z",
+      "last_seen": "2026-11-24T00:00:00.000Z",
+      "status": {
+        "404": 847
+      },
+      "kind": "probe"
+    },
+    {
+      "method": "GET",
+      "path": "/.env",
+      "calls": 311,
+      "first_seen": "2026-10-26T00:00:00.000Z",
+      "last_seen": "2026-11-24T00:00:00.000Z",
+      "status": {
+        "404": 311
+      },
+      "kind": "probe"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/prodcuts",
+      "calls": 229,
+      "first_seen": "2026-10-26T00:00:00.000Z",
+      "last_seen": "2026-11-24T00:00:00.000Z",
+      "status": {
+        "404": 229
+      },
+      "kind": "not_found_only"
+    }
+  ],
+  "serverErrors": [
+    {
+      "method": "POST",
+      "path": "/promo/apply",
+      "calls": 24541,
+      "errors5xx": 5751
+    },
+    {
+      "method": "DELETE",
+      "path": "/orders/{id}",
+      "calls": 4459,
+      "errors5xx": 345
+    }
+  ],
+  "errorsBelow": [
+    {
+      "method": "GET",
+      "path": "/products/search",
+      "calls": 223226,
+      "errors5xx": 1099
+    },
+    {
+      "method": "POST",
+      "path": "/orders",
+      "calls": 80385,
+      "errors5xx": 313
+    },
+    {
+      "method": "POST",
+      "path": "/payments",
+      "calls": 76078,
+      "errors5xx": 212
+    }
+  ],
+  "clientErrors": [
+    {
+      "method": "PATCH",
+      "path": "/users/me",
+      "calls": 5951,
+      "errors4xx": 854,
+      "status": {
+        "200": 5097,
+        "400": 854
+      }
+    }
+  ],
+  "ambiguous": []
+}

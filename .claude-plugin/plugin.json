@@ -1,0 +1,14 @@
+{
+  "name": "api-dead-ends",
+  "version": "0.2.0",
+  "description": "Find broken, unused and undocumented API endpoints from traffic you already have (logs, APM, metrics). Read-only, no AI needed for the numbers.",
+  "author": { "name": "talikbaku" },
+  "license": "MIT",
+  "keywords": ["api", "openapi", "observability", "dead-code", "logs"],
+  "mcpServers": {
+    "ade": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/bin/api-dead-ends.mjs", "mcp"]
+    }
+  }
+}

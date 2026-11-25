@@ -1,0 +1,7 @@
+node_modules/
+out/
+*.local.*
+
+# local prototype (mock modules, Russian UI) — not part of the package
+demo/
+.DS_Store

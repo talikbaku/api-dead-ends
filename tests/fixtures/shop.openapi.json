@@ -1,0 +1,16 @@
+{
+  "openapi": "3.0.3",
+  "info": { "title": "Shop API (synthetic)", "version": "1.0" },
+  "servers": [{ "url": "https://api.example.com/v1" }],
+  "paths": {
+    "/users/me": { "get": { "operationId": "me" } },
+    "/users/{id}": { "get": { "operationId": "getUser" }, "patch": { "operationId": "patchUser" } },
+    "/orders": { "get": {}, "post": {} },
+    "/orders/{orderId}": { "get": {}, "delete": {} },
+    "/orders/{orderId}/cancel": { "post": {} },
+    "/reports/monthly": { "get": {} },
+    "/legacy/items": { "get": { "deprecated": true } },
+    "/legacy/old": { "get": { "deprecated": true } },
+    "/internal/sync": { "post": {} }
+  }
+}

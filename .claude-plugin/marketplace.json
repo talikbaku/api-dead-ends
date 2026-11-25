@@ -1,0 +1,8 @@
+{
+  "name": "api-dead-ends-marketplace",
+  "description": "api-dead-ends: broken, unused and undocumented API endpoints from real traffic",
+  "owner": { "name": "talikbaku" },
+  "plugins": [
+    { "name": "api-dead-ends", "source": "./", "description": "Broken, unused and undocumented API endpoints from real traffic" }
+  ]
+}
