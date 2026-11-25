@@ -3,6 +3,7 @@
 // and parse the saved response. Response formats come from vendor docs — not yet verified
 // on real Datadog / App Insights / Prometheus / Loki / CloudWatch accounts.
 
+import { parseCsv } from '../usage.mjs';
 import { splitJson } from './elasticsearch.mjs';
 
 /**
@@ -88,9 +89,9 @@ export const appinsights = {
         }
       } else recs = d;
     } else {
-      const lines = t.split(/\r?\n/);
-      const head = lines[0].split(',').map((h) => h.replace(/^"|"$/g, ''));
-      recs = lines.slice(1).filter(Boolean).map((l) => Object.fromEntries(l.split(',').map((v, i) => [head[i], v.replace(/^"|"$/g, '')])));
+      const rows = parseCsv(t.replace(/^\uFEFF/, '').trim());
+      const head = rows[0].map((h) => h.trim());
+      recs = rows.slice(1).filter((r) => r.length > 1 || r[0]).map((r) => Object.fromEntries(r.map((v, i) => [head[i], v])));
     }
     return recs.map((r) => {
       const name = String(r.name ?? r.operation_Name ?? '');
@@ -156,7 +157,7 @@ export const prometheus = {
         if (r.value) calls = Number(r.value[1]);
         else for (const [ts, val] of r.values || []) {
           const n = Number(val);
-          if (!(n > 0.5)) continue;
+          if (!(n > 0.5)) continue; // increase() extrapolates: tiny fractions are noise, not calls
           calls += n;
           const iso = new Date(Number(ts) * 1000).toISOString();
           if (!first) first = iso;

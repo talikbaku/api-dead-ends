@@ -96,8 +96,13 @@ async function inside(cwd, p) {
   if (typeof p !== 'string' || !p) throw new Error('path required');
   const root = await realpath(cwd);
   const abs = resolve(root, p);
-  let real = abs;
-  try { real = await realpath(abs); } catch { real = resolve(await realpath(dirname(abs)).catch(() => dirname(abs)), basename(abs)); }
+  // resolve the nearest existing ancestor, so a symlink anywhere on the way is followed before we check
+  let base = abs;
+  const rest = [];
+  for (;;) {
+    try { base = await realpath(base); break; } catch { rest.unshift(basename(base)); const up = dirname(base); if (up === base) break; base = up; }
+  }
+  const real = resolve(base, ...rest);
   const rel = relative(root, real);
   if (rel.startsWith('..') || isAbsolute(rel)) throw new Error('path must be inside the current directory');
   return real;
@@ -222,7 +227,9 @@ export function serve(io = {}) {
   async function handle(line) {
     let msg;
     try { msg = JSON.parse(line); } catch { send({ jsonrpc: '2.0', id: null, error: { code: -32700, message: 'Parse error' } }); return; }
-    const { id, method, params = {} } = msg;
+    if (Array.isArray(msg) || !msg || typeof msg !== 'object') { send({ jsonrpc: '2.0', id: null, error: { code: -32600, message: 'Invalid Request (batches are not supported)' } }); return; }
+    const { id, method } = msg;
+    const params = msg.params && typeof msg.params === 'object' ? msg.params : {};
     const isReq = id !== undefined && id !== null;
     const reply = (/** @type {any} */ result) => isReq && send({ jsonrpc: '2.0', id, result });
     const error = (/** @type {number} */ code, /** @type {string} */ message, /** @type {any} */ data) => isReq && send({ jsonrpc: '2.0', id, error: { code, message, ...(data ? { data } : {}) } });

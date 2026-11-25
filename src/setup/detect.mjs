@@ -71,7 +71,7 @@ export async function detectProject(root, opt = {}) {
   async function walk(dir, depth) {
     if (depth > maxDepth || budget <= 0) return;
     let entries;
-    try { entries = await readdir(dir, { withFileTypes: true }); } catch { return; }
+    try { entries = (await readdir(dir, { withFileTypes: true })).sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)); } catch { return; }
     budget -= entries.length;
     const files = entries.filter((e) => e.isFile()).map((e) => e.name);
     const rel = relative(root, dir) || '.';

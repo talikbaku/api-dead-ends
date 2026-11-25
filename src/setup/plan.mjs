@@ -104,7 +104,8 @@ export function buildSteps(c) {
   const ade = c.cmd || 'npx api-dead-ends';
   return c.services.map((s0) => {
     const s = { ...s0, name: safeName(s0.name) };
-    const dir = `${safeName(c.out)}/${s.name}`;
+    // c.out is set by our code (default .api-dead-ends); keep the leading dot so outputs stay under the git-ignored folder
+    const dir = `${/^\.?[\w-]+$/.test(c.out) ? c.out : '.api-dead-ends'}/${s.name}`;
     const usage = `${dir}/usage.csv`;
     /** @type {Array<{ title: string, cmd?: string, note?: string }>} */
     const steps = [];
@@ -115,8 +116,12 @@ export function buildSteps(c) {
     }
     if (!spec) {
       const fw = s.frameworks.map((f) => ROUTE_SOURCES[f]).find(Boolean);
-      steps.push({ title: 'Get the list of endpoints', note: fw ? `${fw.how}${fw.kind === 'routes' ? `\n  then: ${ade} spec from-routes routes.txt -o ${dir}/routes.openapi.json` : ''}` : 'Export your OpenAPI/Swagger JSON, or write a routes.txt with "METHOD /path" lines and run: ' + `${ade} spec from-routes routes.txt -o ${dir}/routes.openapi.json` });
-      spec = fw && fw.kind === 'spec' ? 'openapi.json' : `${dir}/routes.openapi.json`;
+      const how = fw ? fw.how.replace(/> openapi\.json/g, `> ${dir}/openapi.json`) : '';
+      const fromRoutes = `${ade} spec from-routes ${dir}/routes.txt --title ${q(s.name)} -o ${dir}/routes.openapi.json`;
+      steps.push({ title: 'Get the list of endpoints', note: fw && fw.kind === 'spec'
+        ? how
+        : `${fw ? fw.how.replace(/routes\.(txt|json)/, `${dir}/routes.txt`) : `Export your OpenAPI JSON to ${dir}/openapi.json, or write ${dir}/routes.txt with "METHOD /path" lines`}\n  then: ${fromRoutes}` });
+      spec = fw && fw.kind === 'spec' ? `${dir}/openapi.json` : `${dir}/routes.openapi.json`;
     }
     const specFlag = ` --spec ${q(spec)}`;
     const t = c.source.type;
@@ -124,7 +129,7 @@ export function buildSteps(c) {
     const svc = ` --service ${q(s.logName)}`;
     if (t === 'elasticsearch') {
       if (c.source.access === 'api-key') {
-        steps.push({ title: 'Pull the usage table from Elasticsearch (read-only API key in ES_API_KEY)', cmd: `ES_API_KEY=… ${ade} fetch elasticsearch --url ${q(c.source.url || 'https://es.example:9200')} --index ${q(c.source.index || 'logs-*')}${svc}${days}${specFlag} -o ${usage}` });
+        steps.push({ title: 'Pull the usage table from Elasticsearch (first: export ES_API_KEY=<read-only key> in your shell)', cmd: `${ade} fetch elasticsearch --url ${q(c.source.url || 'https://es.example:9200')} --index ${q(c.source.index || 'logs-*')}${svc}${days}${specFlag} -o ${usage}` });
       } else {
         steps.push({ title: 'Print the query (skip if a colleague already gave you the response)', cmd: `${ade} query elasticsearch${svc}${days} --index ${q(c.source.index || 'logs-*')}${specFlag} --response ${dir}/response.json > ${dir}/query.txt` });
         steps.push({ title: 'Run it in Kibana → Dev Tools, save the response', note: `save the JSON response as ${dir}/response.json\n  already have an export? cp <your-file> ${dir}/response.json` });

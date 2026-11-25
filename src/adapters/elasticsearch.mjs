@@ -58,7 +58,7 @@ export function buildQuery(o = {}) {
   };
   /** @type {any[]} */
   const filter = [
-    { range: { [f.time]: { gte: o.from ?? 'now-15d', lt: o.to ?? 'now', ...(typeof o.from === 'number' ? { format: 'epoch_millis' } : {}) } } },
+    { range: { [f.time]: { gte: o.from ?? `now-${o.days ?? 15}d`, lt: o.to ?? 'now', ...(typeof o.from === 'number' ? { format: 'epoch_millis' } : {}) } } },
     { exists: { field: f.path } },
   ];
   if (o.service) filter.unshift({ match_phrase: { [f.service]: o.service } });

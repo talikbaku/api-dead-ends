@@ -74,6 +74,7 @@ function buildRegex(base, segs) {
     .map((s) => (isParam(s) ? ((s.match(/\{[^}]+\}/g) || []).length === 1 ? s.split(/\{[^}]+\}/).map(esc).join('[^/]+') : '[^/]+') : esc(s)))
     .join('/');
   const pre = base ? `(?:${esc(base)})?` : '';
+  if (!body) return new RegExp(`^${pre}/?$`); // spec path "/" also matches the bare base path
   return new RegExp(`^${pre}/${body}/?$`);
 }
 

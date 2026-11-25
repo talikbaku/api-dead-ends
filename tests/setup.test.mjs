@@ -111,9 +111,9 @@ test('report: literal on a parameter is flagged; 5xx below threshold listed; zer
   const r = run(dir, ['report', '--usage', 'u.csv', '--spec', 'o.json', '--json']);
   const j = JSON.parse(r.stdout);
   assert.deepEqual(j.ambiguous.map((a) => a.path), ['/orders/export']);
-  assert.deepEqual(j.errorsBelow.map((e) => e.path), ['/orders']);
-  assert.equal(j.endpoints.find((e) => e.method === 'GET' && e.path === '/orders/{id}').calls, 1000, 'separate-route traffic is not added to {id}');
-  assert.equal(j.totals.shadow, 1, 'and it counts as undocumented');
+  assert.deepEqual(j.errorsBelow.map((e) => e.path), ['/orders/{id}', '/orders']);
+  assert.equal(j.endpoints.find((e) => e.method === 'GET' && e.path === '/orders/{id}').calls, 1050, 'counted into the operation (a slug must not look "not called")');
+  assert.equal(j.totals.shadow, 0, 'only a hint, not a CI-failing shadow');
   writeFileSync(join(dir, 'z.csv'), 'method,path,calls\n');
   const z = run(dir, ['report', '--usage', 'z.csv', '--spec', 'o.json']);
   assert.equal(z.status, 2);
@@ -135,6 +135,28 @@ test('security: hostile service names never reach generated shell commands', asy
   for (const st of steps[0].steps) if (st.cmd) {
     assert.doesNotMatch(st.cmd.replace(/'[^']*'/g, "''"), /\$\(|`|\|sh/, st.cmd);
   }
+});
+
+test('correctness: slugs stay with their operation; status classes and objects; dates with offsets; flags validated', () => {
+  const dir = makeRepo();
+  writeFileSync(join(dir, 's.json'), JSON.stringify({ openapi: '3.0.0', info: { title: 't', version: '1' }, paths: { '/categories/{slug}': { get: {} }, '/a': { get: {} } } }));
+  writeFileSync(join(dir, 'u.json'), JSON.stringify([
+    { method: 'GET', path: '/categories/books', calls: 5000, status: { 200: 4900, 500: 100 }, first_seen: '2026-01-01T00:00:00+00:00', last_seen: '2026-01-31 00:00:00 UTC' },
+    { method: 'GET', path: '/categories/music', calls: '3,000', status: '200:3000' },
+    { method: 'GET', path: '/a', calls: 100, status: '2xx:50|5xx:50' },
+  ]));
+  const j = JSON.parse(run(dir, ['report', '--usage', 'u.json', '--spec', 's.json', '--json']).stdout);
+  const cat = j.endpoints.find((e) => e.path === '/categories/{slug}');
+  assert.equal(cat.class, 'used');
+  assert.equal(cat.calls, 8000);
+  assert.equal(cat.errors5xx, 100);
+  assert.equal(j.endpoints.find((e) => e.path === '/a').errors5xx, 50);
+  assert.equal(j.window.days, 31);
+  const pct = JSON.parse(run(dir, ['report', '--usage', 'u.json', '--spec', 's.json', '--json', '--error-share', '1']).stdout);
+  assert.equal(pct.thresholds.errorShare, 0.01, '--error-share is a percent');
+  assert.equal(run(dir, ['report', '--usage', 'u.json', '--spec', 's.json', '--rare', 'abc']).status, 2);
+  assert.equal(run(dir, ['report', '--usage', 'u.json', '--spec', 's.json', '--baseline', 'x.json', '--fail-on', 'new_shadow']).status, 2);
+  assert.match(run(dir, ['query', 'elasticsearch', '--days', '60']).stdout, /now-60d/);
 });
 
 test('end to end on the synthetic repo: init plan → convert → spec from-routes → report', () => {
@@ -177,4 +199,42 @@ test('mcp: legacy initialize, modern discover, tools/list, tools/call, version e
   assert.equal(by[5].error.code, -32022);
   assert.equal(by[6].error.code, -32602);
   assert.equal(lines.length, 6, 'notifications get no reply');
+});
+
+test('NEXT-STEPS commands run as written (copy-paste), outputs land in the git-ignored folder', () => {
+  const dir = makeRepo();
+  writeFileSync(join(dir, 'a.log'), '203.0.113.1 - - [10/Nov/2026:10:00:00 +0000] "GET /users/12 HTTP/1.1" 500 1 "-" "-"\n'.repeat(20));
+  const init = run(dir, ['init', '--yes', '--source', 'accesslog', '--service', 'accounts', '--logs', 'a.log', '--json']);
+  assert.equal(init.status, 0, init.stderr);
+  const plan = JSON.parse(init.stdout);
+  for (const st of plan.steps[0].steps) {
+    if (!st.cmd) continue;
+    const sh = spawnSync('/bin/sh', ['-c', st.cmd.replace(plan.config.cmd, `"${process.execPath}" "${BIN}"`)], { cwd: dir, encoding: 'utf8' });
+    assert.equal(sh.status, 0, `${st.cmd}\n${sh.stderr}`);
+  }
+  assert.ok(existsSync(join(dir, '.api-dead-ends/accounts/report/report.md')));
+  assert.ok(!existsSync(join(dir, 'api-dead-ends')), 'no folder without the dot');
+});
+
+test('mcp: no directories are created through a symlink; batches and null params get proper errors', async () => {
+  const { mkdtempSync, mkdirSync, symlinkSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const base = mkdtempSync(join(tmpdir(), 'ade-mk-'));
+  const repo = makeRepo(join(base, 'repo'));
+  mkdirSync(join(base, 'outside'));
+  symlinkSync(join(base, 'outside'), join(repo, 'link'));
+  const p = spawn(process.execPath, [BIN, 'mcp'], { cwd: repo });
+  let out = '';
+  p.stdout.on('data', (d) => { out += d; });
+  p.stdin.end([
+    JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: null }),
+    JSON.stringify([{ jsonrpc: '2.0', id: 2, method: 'ping' }]),
+    JSON.stringify({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'spec_from_routes', arguments: { file: 'services/orders/routes.txt', out: 'link/newdir/deep/x.json' } } }),
+  ].join('\n') + '\n');
+  await new Promise((r) => p.on('close', r));
+  const msgs = out.trim().split('\n').map((l) => JSON.parse(l));
+  assert.ok(msgs.find((m) => m.id === 1).result.protocolVersion);
+  assert.equal(msgs.find((m) => m.id === null).error.code, -32600);
+  assert.equal(msgs.find((m) => m.id === 3).result.isError, true);
+  assert.ok(!existsSync(join(base, 'outside', 'newdir')));
 });

@@ -52,9 +52,9 @@ export function toMarkdown(r, opt = {}) {
   const winTxt = r.window.days ? pl(r.window.days, 'day') : 'an unknown window (the source gave no dates — pass --days N)';
   L.push('## Summary', '');
   const below5 = r.errorsBelow.reduce((a, e) => a + e.errors5xx, 0);
-  L.push(`- **${pl(t.serverErrors, 'endpoint')} with server errors** (5xx ≥ ${th.errorShare * 100}% of calls and ≥ ${th.errorMin} responses)${t.serverErrorsBelowThreshold ? ` — **and ${n(below5)} more 5xx on ${pl(t.serverErrorsBelowThreshold, 'endpoint')} below that threshold**` : ''}.`);
+  L.push(`- **${pl(t.serverErrors, 'endpoint')} with server errors** (5xx ≥ ${+(th.errorShare * 100).toFixed(3)}% of calls and ≥ ${th.errorMin} responses)${t.serverErrorsBelowThreshold ? ` — **and ${n(below5)} more 5xx on ${pl(t.serverErrorsBelowThreshold, 'endpoint')} below that threshold**` : ''}.`);
   if (t.clientErrors) L.push(`- **${pl(t.clientErrors, 'endpoint')} with many client errors** (4xx other than 401/404 ≥ 10%).`);
-  L.push(`- **${pl(t.shadow, 'undocumented endpoint')}** called (not in the spec)${t.ambiguous ? `, ${t.ambiguous} of them a word on a parameter (e.g. /orders/export vs /orders/{id})` : ''}${r.shadow.some((x) => RISKY.test(x.path)) ? ' — **includes debug/admin paths**' : ''}.`);
+  L.push(`- **${pl(t.shadow, 'undocumented endpoint')}** called (not in the spec)${r.shadow.some((x) => RISKY.test(x.path)) ? ' — **includes debug/admin paths**' : ''}${t.ambiguous ? `; plus ${t.ambiguous} path${t.ambiguous === 1 ? '' : 's'} that may be separate routes (see the hint below)` : ''}.`);
   L.push(`- **${pl(t.not_seen, 'endpoint')} not called** in ${winTxt}${t.rare ? `, ${t.rare} rare` : ''}${t.deprecated_in_use ? `, ${t.deprecated_in_use} deprecated but still called` : ''}. Confidence: **${r.window.confidence}**.`);
   L.push(`- ${n(t.requests)} requests in ${pl(t.rows, 'method+path pair')}${r.window.from ? `, ${day(r.window.from)} – ${day(r.window.to)}` : ''}. Operations documented in the spec: ${t.operations} (undocumented ones are counted separately above).`, '');
   L.push('> "Not called" means not seen in this window — not "dead". Monthly jobs, partners and old clients may call less often, and endpoints that do not log are invisible. Treat it as a recommendation to check, never as a reason to delete.', '');
@@ -73,15 +73,18 @@ export function toMarkdown(r, opt = {}) {
 
   sec('Server errors', ['Method', 'Path', 'Calls', '5xx', 'Share', 'Statuses'],
     r.serverErrors.map((e) => [e.method, code(e.path), n(e.calls), n(e.errors5xx), pct(e.errors5xx, e.calls), st(e.status)]),
-    `Rule: 5xx ≥ ${th.errorShare * 100}% of calls **and** ≥ ${th.errorMin} responses (change with \`--error-share\`, \`--error-min\`).`);
+    `Rule: 5xx ≥ ${+(th.errorShare * 100).toFixed(3)}% of calls **and** ≥ ${th.errorMin} responses (change with \`--error-share\`, \`--error-min\`).`);
   if (r.errorsBelow.length) sec('Other endpoints with 5xx (below the threshold)', ['Method', 'Path', 'Calls', '5xx', 'Share'],
     r.errorsBelow.slice(0, TOP).map((e) => [e.method, code(e.path), n(e.calls), n(e.errors5xx), pct(e.errors5xx, e.calls)]));
   if (r.clientErrors.length) sec('Client errors (4xx ≥ 10%, without 401/404)', ['Method', 'Path', 'Calls', '4xx', 'Share', 'Statuses'],
     r.clientErrors.map((e) => [e.method, code(e.path), n(e.calls), n(e.errors4xx), pct(e.errors4xx, e.calls), st(e.status)]));
-  const why = (/** @type {any} */ s) => (s.kind === 'method_not_in_spec' ? 'path exists, method does not' : s.kind === 'possibly_separate_route' ? `would match ${code(s.matched)} — separate route?` : 'path not in spec');
+  const why = (/** @type {any} */ s) => (s.kind === 'method_not_in_spec' ? 'path exists, method does not' : 'path not in spec');
   const flag = (/** @type {any} */ s) => (RISKY.test(s.path) && [...s.status.keys()].some((c) => c[0] === '2') ? '⚠ debug/admin path answering 2xx — check auth' : '');
   sec('Undocumented: called, not in the spec', ['Method', 'Path', 'Calls', 'Why', 'Risk', 'Statuses'],
     r.shadow.slice(0, TOP).map((s) => [s.method, code(s.path), n(s.calls), why(s), flag(s), st(s.status, 3)]));
+  if (r.ambiguous.length) sec('Possibly separate routes (hint)', ['Method', 'Path seen', 'Counted as', 'Calls'],
+    r.ambiguous.map((a) => [a.method, code(a.path), code(a.matched), n(a.calls)]),
+    'A word landed on a spec parameter and was counted into that operation. If your app has its own route for it (e.g. `/orders/export`), that route is undocumented; if the parameter is a slug (`/categories/books`), ignore this.');
   sec(`Not called in ${winTxt}`, ['Method', 'Path', 'Note'],
     E.filter((e) => e.class === 'not_seen').sort((a, b) => a.path.localeCompare(b.path))
       .map((e) => [e.method, code(e.path), e.periodicHint ? 'looks periodic (report/job/import): check before removing' : '']));

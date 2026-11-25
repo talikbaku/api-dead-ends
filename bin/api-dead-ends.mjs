@@ -122,6 +122,7 @@ const SOURCES = {
 
 const cmd0 = pos[0];
 if (Number(process.versions.node.split('.')[0]) < 22 && cmd0 !== 'mcp' && !v.json) process.stderr.write(`Note: Node ${process.versions.node} is end-of-life and misses recent security fixes; Node 22 or 24 is recommended.\n`);
+if (v.version) { console.log(JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')).version); process.exit(0); }
 if (v.help || !cmd0) {
   if (cmd0 === 'init') console.log(INIT_HELP); else console.log(HELP);
   process.exitCode = cmd0 || v.help ? 0 : 2;
@@ -130,7 +131,6 @@ if (v.help || !cmd0) {
 }
 /** Exit only after stdout is flushed (pipes are async in Node). @param {number} code @returns {Promise<never>} */
 const exitAfterFlush = (code) => new Promise(() => process.stdout.write('', () => process.exit(code)));
-if (v.version) { console.log(JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')).version); process.exit(0); }
 if (cmd0 === 'mcp') { const { serve } = await import('../src/mcp.mjs'); await serve(); await exitAfterFlush(0); }
 if (cmd0 === 'init') {
   try {
@@ -190,6 +190,7 @@ try {
     }
     const csv = toCsv([...acc.values()].sort((a, b) => b.calls - a.calls));
     if (v.out) { await writeFile(v.out, csv); console.error(`${acc.size} method+path pairs → ${v.out}`); } else process.stdout.write(csv);
+    if (!spec && pos[1] !== 'csv') console.error('Note: no --spec given. Pass the same --spec as for `report`, so literal path segments from your spec (v1beta1, oauth2…) are not folded into {id}.');
     if (acc.size && [...acc.values()].every((r) => !r.first_seen)) console.error('Note: the response has no first/last seen dates. Pass --days N to `report` so it knows the window length.');
   } else if (cmd === 'fetch') {
     if (pos[1] !== 'elasticsearch' || !v.url || !v.index) fail('Usage: api-dead-ends fetch elasticsearch --url <es-url> --index <pattern> [--service X]');
@@ -215,8 +216,17 @@ try {
     if (!v.usage || !spec) fail('Usage: api-dead-ends report --usage <usage.csv> --spec <openapi.json>\n  usage.csv comes from `convert` or `fetch` (traffic data). No spec? `api-dead-ends spec from-routes <routes.txt>`. Not sure where to start? `api-dead-ends init`.');
     const rows = parseUsage(await readFile(v.usage, 'utf8'), { keep });
     if (!rows.reduce((a, x) => a + x.calls, 0)) fail(`No traffic in ${v.usage}: 0 requests. Every endpoint would look "not seen", which says nothing. Check the query, the service name and the window.`);
-    const r = classify(rows, spec, { days: v.days ? Number(v.days) : undefined, rare: v.rare ? Number(v.rare) : undefined, keepPreflight: v['keep-preflight'],
-      errorMin: v['error-min'] ? Number(v['error-min']) : undefined, errorShare: v['error-share'] ? Number(v['error-share']) / (Number(v['error-share']) > 1 ? 100 : 1) : undefined });
+    const num = (/** @type {string} */ k, /** @type {number} */ min, /** @type {number} */ max) => {
+      if (v[k] === undefined) return undefined;
+      const x = Number(v[k]);
+      if (!Number.isFinite(x) || x < min || x > max) fail(`--${k} must be a number between ${min} and ${max}`);
+      return x;
+    };
+    const share = num('error-share', 0, 100); // always a percent: 1 = 1%, 0.5 = 0.5%
+    const failOn = v['fail-on']?.split(',').map((x) => x.trim()).filter(Boolean);
+    for (const x of failOn || []) if (!['new-shadow', 'deprecated-growth'].includes(x)) fail(`--fail-on: unknown check "${x}". Use: new-shadow, deprecated-growth`);
+    const r = classify(rows, spec, { days: num('days', 1, 3650), rare: num('rare', 1, 1e9), keepPreflight: v['keep-preflight'],
+      errorMin: num('error-min', 1, 1e9), errorShare: share === undefined ? undefined : share / 100 });
     const md = toMarkdown(r);
     if (v.json && !v.out) process.stdout.write(toJson(r));
     else if (v.out) {
@@ -229,7 +239,7 @@ try {
     } else process.stdout.write(md);
     if (v['write-baseline']) await writeFile(v['write-baseline'], JSON.stringify(makeBaseline(r), null, 2) + '\n');
     if (v.baseline) {
-      const cmp = compareBaseline(r, JSON.parse(await readFile(v.baseline, 'utf8')), { failOn: v['fail-on']?.split(',') });
+      const cmp = compareBaseline(r, JSON.parse(await readFile(v.baseline, 'utf8')), { failOn });
       for (const s of cmp.newShadow) console.error(`NEW SHADOW: ${s.method} ${s.path} (${s.calls} calls)`);
       for (const e of cmp.depGrowth) console.error(`DEPRECATED GROWTH: ${e.method} ${e.path} (${e.calls} calls)`);
       if (cmp.fail) process.exitCode = 1;

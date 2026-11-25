@@ -39,14 +39,16 @@ export function addRow(acc, r, opt = {}) {
   const m = String(r.method || '').toUpperCase();
   const method = /^[A-Z]{1,10}$/.test(m) ? m : m ? 'OTHER' : 'ANY';
   const path = cleanText(opt.template === false ? String(r.path) : templatePath(r.path, { keep: opt.keep }));
-  const calls = Number(r.calls) || 0;
+  const calls = Number(String(r.calls ?? '').replace(/[,_\s]/g, '')) || 0;
   const key = `${method} ${path}`;
   const o = acc.get(key) || { method, path, calls: 0, first_seen: '', last_seen: '', status: new Map() };
   o.calls += calls;
   const fs = isoOrEmpty(r.first_seen), ls = isoOrEmpty(r.last_seen);
   if (fs && (!o.first_seen || fs < o.first_seen)) o.first_seen = fs;
   if (ls && ls > o.last_seen) o.last_seen = ls;
-  const st = r.status instanceof Map ? r.status : parseStatus(r.status || '');
+  const st = r.status instanceof Map ? r.status
+    : r.status && typeof r.status === 'object' ? new Map(Object.entries(r.status).map(([k, x]) => [k, Number(x)]))
+    : parseStatus(String(r.status || ''));
   for (const [c, n] of st) if (/^([1-5]\d\d|[1-5]xx)$/i.test(c) && Number.isFinite(n)) o.status.set(c, (o.status.get(c) || 0) + n);
   acc.set(key, o);
   return acc;
@@ -90,8 +92,11 @@ export function cleanText(s) {
 /** Only real dates survive; anything else (e.g. "=cmd|...") becomes empty. @param {unknown} v */
 function isoOrEmpty(v) {
   if (!v) return '';
-  const s = String(v);
-  return /^\d{4}-\d\d-\d\dT[\d:.]+Z$/.test(s) && Number.isFinite(Date.parse(s)) ? s : '';
+  const s = String(v).trim();
+  if (/^\d{10,13}(\.\d+)?$/.test(s)) { const n = Number(s); return new Date(n < 1e12 ? n * 1000 : n).toISOString(); }
+  if (!/^\d{4}-\d\d-\d\d/.test(s)) return ''; // only real dates: never formulas or free text
+  const t = Date.parse(s.replace(' UTC', 'Z').replace(' ', 'T'));
+  return Number.isFinite(t) ? new Date(t).toISOString() : '';
 }
 
 /** @param {UsageRow[]} rows */

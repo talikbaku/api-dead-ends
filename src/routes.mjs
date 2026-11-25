@@ -22,6 +22,7 @@ const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD'];
  */
 export function toOpenApiPath(p) {
   let s = String(p).trim().slice(0, 500);
+  s = s.replace(/\(\?P<(\w+)>[^)]*\)/g, '{$1}'); // Django regex groups (?P<pk>[0-9]+)
   s = s.replace(/\(\.:format\)/g, '').replace(/\([^)]*\)/g, ''); // Rails optional groups
   s = s.replace(/^\^/, '').replace(/\$$/, ''); // Django regex anchors
   if (!s.startsWith('/')) s = '/' + s;
@@ -84,7 +85,7 @@ export function parseRoutes(text) {
       continue;
     }
     // Django show_urls: "/path/<int:pk>/\tview\tname" — no method known
-    if ((m = line.match(/^(\^?\/\S*)/))) { add('ANY', m[1]); continue; }
+    if ((m = line.match(/^(\^?\/?[\w^][^\s]*\/?)(\s|$)/)) && /\//.test(m[1])) { add('ANY', m[1]); continue; }
   }
   return dedupe(out);
 }

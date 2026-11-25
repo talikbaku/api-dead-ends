@@ -71,8 +71,8 @@ export function classify(rows, spec, opt = {}) {
   }
 
   for (const [r, o] of matched) {
-    const sep = separate.get(`${o.method} ${r.path}`);
-    if (sep) { shadow.push({ ...r, kind: 'possibly_separate_route', matched: sep }); continue; }
+    // Always counted into the operation (a real slug like /categories/books must not look "not called");
+    // the word is only reported as a hint in `ambiguous`.
     {
       const x = /** @type {any} */ (byOp.get(o));
       x.calls += r.calls;
@@ -116,8 +116,8 @@ export function classify(rows, spec, opt = {}) {
     .sort((a, b) => b.n / b.e.calls - a.n / a.e.calls)
     .map(({ e, n }) => ({ method: e.method, path: e.path, calls: e.calls, errors4xx: n, status: e.status }));
   /** @type {Array<{ method: string, path: string, matched: string, calls: number }>} */
-  const ambiguous = shadow.filter((x) => x.kind === 'possibly_separate_route')
-    .map((x) => ({ method: x.method, path: x.path, matched: /** @type {any} */ (x).matched, calls: x.calls }))
+  const ambiguous = matched.filter(([r, o]) => separate.has(`${o.method} ${r.path}`))
+    .map(([r, o]) => ({ method: o.method, path: r.path, matched: o.path, calls: r.calls }))
     .sort((a, b) => b.calls - a.calls);
 
   const days = opt.days ?? inferDays(rows);
@@ -213,7 +213,10 @@ function noiseKind(r, known, opt) {
  */
 export function sumStatus(m, pred) {
   let s = 0;
-  for (const [c, n] of m) if (pred(Number(c))) s += n;
+  for (const [c, n] of m) {
+    const code = /^[1-5]xx$/i.test(c) ? Number(c[0]) * 100 : Number(c); // status classes (5xx) count as their class
+    if (pred(code)) s += n;
+  }
   return s;
 }
 

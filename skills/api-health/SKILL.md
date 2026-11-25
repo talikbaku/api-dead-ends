@@ -10,7 +10,7 @@ The `ade` MCP server gives you tools that only read files inside the current dir
 ## Setup in a repository
 1. `detect_project` → show the user the services, frameworks and specs found. Ask which traffic source they have (Elasticsearch/Kibana, Datadog, Prometheus, Loki, App Insights, CloudWatch, New Relic, Dynatrace, Splunk, access log files, CSV, or nothing).
 2. `setup_plan` with that source → show the steps per service.
-3. Or run `api-dead-ends init` in the terminal: it asks the same questions and writes `api-dead-ends.config.json` and `.api-dead-ends/NEXT-STEPS.md`. Let the human answer; do not pick a source for them.
+3. Or run `node ${CLAUDE_PLUGIN_ROOT}/bin/api-dead-ends.mjs init` in the terminal: it asks the same questions and writes `api-dead-ends.config.json` and `.api-dead-ends/NEXT-STEPS.md`. Let the human answer; do not pick a source for them.
 4. No spec? Ask the framework for its route list (the plan says how) and use `spec_from_routes`.
 5. Queries against production systems are run **by the human**. You print them with `build_query`; the human saves the response to a file.
 

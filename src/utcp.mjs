@@ -6,7 +6,8 @@
 import { fileURLToPath } from 'node:url';
 
 const BIN = fileURLToPath(new URL('../bin/api-dead-ends.mjs', import.meta.url));
-const arg = (/** @type {string} */ n) => `UTCP_ARG_${n}_UTCP_END`;
+// Arguments are single-quoted; values containing a single quote are not supported (experimental).
+const arg = (/** @type {string} */ n) => `'UTCP_ARG_${n}_UTCP_END'`;
 
 export function utcpManual() {
   const cmd = `node "${BIN}"`;
@@ -24,7 +25,7 @@ export function utcpManual() {
     tools: [
       tool('detect_project', 'Read-only scan of a repository: services, languages, frameworks, specs, observability hints.', { path: s('Repository root') }, `${cmd} detect ${arg('path')}`),
       tool('setup_plan', 'Commands per service for a traffic source. Writes nothing.', { path: s('Repository root'), source: s('elasticsearch, datadog-apm, datadog, prometheus, loki, appinsights, cloudwatch, newrelic, dynatrace, splunk, accesslog, csv, none') },
-        `cd ${arg('path')} && ${cmd} init --yes --json --dry-run --source ${arg('source')}`),
+        `${cmd} init --yes --json --dry-run --dir ${arg('path')} --source ${arg('source')}`),
       tool('build_query', 'Print the aggregation query for a source; the human runs it.', { source: s('Source id'), service: s('Service name in the source'), days: s('Window in days') },
         `${cmd} query ${arg('source')} --service ${arg('service')} --days ${arg('days')}`),
       tool('spec_from_routes', 'Minimal OpenAPI JSON from a framework route list file.', { file: s('routes.txt or routes.json') }, `${cmd} spec from-routes ${arg('file')}`),

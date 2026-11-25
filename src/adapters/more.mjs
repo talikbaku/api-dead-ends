@@ -115,7 +115,7 @@ export const datadogApm = {
         let calls = 0, first = '', last = '';
         for (const [ms, val] of s.pointlist || []) {
           const n = Number(val);
-          if (!(n > 0.5)) continue;
+          if (!(n > 0)) continue;
           calls += n;
           const t = new Date(Number(ms)).toISOString();
           if (!first) first = t;
@@ -166,6 +166,8 @@ export const newrelic = {
         let method = r['request.method'] ?? (facet.length >= 3 ? facet[0] : '');
         let name = String(r.name ?? r.metricTimesliceName ?? (facet.length >= 3 ? facet[1] : facet[0]) ?? '');
         name = name.replace(/^WebTransaction\/[^/]+\//, '');
+        let mm;
+        if ((mm = name.match(/^(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\/+(.*)$/))) [method, name] = [mm[1], `/${mm[2]}`]; // Expressjs/GET//orders/:id
         if (/^[A-Z]+ \//.test(name)) [method, name] = [name.split(' ')[0], name.slice(name.indexOf(' ') + 1)];
         else if (!name.startsWith('/')) name = `/${name}`;
         const st = r['http.statusCode'] ?? (facet.length >= 3 ? facet[2] : '');
