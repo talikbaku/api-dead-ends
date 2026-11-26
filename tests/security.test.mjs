@@ -133,3 +133,20 @@ test('mcp: init writes setup files once; write_report writes only under .api-dea
   assert.equal(r[4].isError, true, 'outside .api-dead-ends is refused');
   assert.ok(!existsSync(join(repo, 'reports')));
 });
+
+test('write_report and report --out never write through a planted symlink', async () => {
+  const { mkdirSync, symlinkSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { mkdtempSync } = await import('node:fs');
+  const base = mkdtempSync(join(tmpdir(), 'ade-sl-'));
+  const repo = makeRepo(join(base, 'repo'));
+  writeFileSync(join(base, 'victim.txt'), 'keep me\n');
+  mkdirSync(join(repo, '.api-dead-ends/x/report'), { recursive: true });
+  symlinkSync(join(base, 'victim.txt'), join(repo, '.api-dead-ends/x/report/report.json'));
+  writeFileSync(join(repo, 'u.csv'), 'method,path,calls\nGET,/api/products,10\n');
+  const r = await mcp(repo, [['write_report', { out: '.api-dead-ends/x/report', usage: 'u.csv', spec: 'services/gateway/openapi.json' }]]);
+  assert.equal(r[1].isError, true);
+  const c = run(repo, ['report', '--usage', 'u.csv', '--spec', 'services/gateway/openapi.json', '--out', '.api-dead-ends/x/report']);
+  assert.notEqual(c.status, 0);
+  assert.equal(readFileSync(join(base, 'victim.txt'), 'utf8'), 'keep me\n');
+});

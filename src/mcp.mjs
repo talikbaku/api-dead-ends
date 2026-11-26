@@ -20,6 +20,7 @@ import { toMarkdown, toJson } from './report.mjs';
 import { toHtml } from './html.mjs';
 import { runInit } from './setup/wizard.mjs';
 import { PassThrough } from 'node:stream';
+import { writeSafe } from './safewrite.mjs';
 import * as es from './adapters/elasticsearch.mjs';
 import { datadog, appinsights, prometheus, loki, cloudwatch } from './adapters/others.mjs';
 import { csv, splunk, datadogApm, newrelic, dynatrace, athena, bigquery, azureApim, accesslog } from './adapters/more.mjs';
@@ -238,10 +239,10 @@ async function callTool(name, a = {}) {
     const win = dailyRows.some((x) => x.day) ? computeWindows(dailyRows, spec, { days: a.days }) : null;
     const extra = { spikes: win?.spikes || [], toolVersion: INFO.version };
     await mkdir(target, { recursive: true });
-    await inside(cwd, a.out); // re-check after mkdir
-    await writeFile(resolve(target, 'report.md'), toMarkdown(r, extra));
-    await writeFile(resolve(target, 'report.json'), toJson(r, extra));
-    await writeFile(resolve(target, 'report.html'), toHtml(r, { ...extra, win }));
+    const real = await inside(cwd, a.out); // re-check after mkdir; write into the resolved folder
+    await writeSafe(resolve(real, 'report.md'), toMarkdown(r, extra));
+    await writeSafe(resolve(real, 'report.json'), toJson(r, extra));
+    await writeSafe(resolve(real, 'report.html'), toHtml(r, { ...extra, win }));
     return { written: ['report.md', 'report.json', 'report.html'].map((f) => `${a.out.replace(/\/$/, '')}/${f}`), totals: r.totals, spikes: extra.spikes.length };
   }
   throw new Error(`unknown tool ${name}`);

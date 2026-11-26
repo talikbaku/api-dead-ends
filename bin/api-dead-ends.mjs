@@ -12,6 +12,7 @@ import { detectProject } from '../src/setup/detect.mjs';
 import { parseRoutes, routesToOpenApi } from '../src/routes.mjs';
 import { toMarkdown, toJson, toTerminal } from '../src/report.mjs';
 import { toHtml } from '../src/html.mjs';
+import { writeSafe } from '../src/safewrite.mjs';
 import { computeWindows } from '../src/windows.mjs';
 import { makeBaseline, compareBaseline } from '../src/baseline.mjs';
 import * as es from '../src/adapters/elasticsearch.mjs';
@@ -214,8 +215,8 @@ if (cmd0 === 'probe') {
     const md = probeToMarkdown(p);
     if (v.out) {
       await mkdir(v.out, { recursive: true });
-      await writeFile(join(v.out, 'probe.json'), JSON.stringify(p, null, 2) + '\n');
-      await writeFile(join(v.out, 'probe.md'), md);
+      await writeSafe(join(v.out, 'probe.json'), JSON.stringify(p, null, 2) + '\n');
+      await writeSafe(join(v.out, 'probe.md'), md);
       const bad = p.rows.filter((r) => r.problem);
       console.error(`${p.pages} pages, ${p.requests} API requests, ${bad.length} problems → ${join(v.out, 'probe.md')} (add to the HTML report: report … --probe ${join(v.out, 'probe.json')})`);
     } else process.stdout.write(md);
@@ -236,8 +237,8 @@ if (cmd0 === 'coverage') {
   if (v.json) process.stdout.write(JSON.stringify(c, null, 2) + '\n');
   else if (v.out) {
     await mkdir(v.out, { recursive: true });
-    await writeFile(join(v.out, 'coverage.md'), md);
-    await writeFile(join(v.out, 'coverage.json'), JSON.stringify(c, null, 2) + '\n');
+    await writeSafe(join(v.out, 'coverage.md'), md);
+    await writeSafe(join(v.out, 'coverage.json'), JSON.stringify(c, null, 2) + '\n');
     console.error(`not logged: ${c.notLogged.length}, under-logged: ${c.underLogged.length} → ${join(v.out, 'coverage.md')}`);
   } else process.stdout.write(md);
   await exitAfterFlush(0);
@@ -367,10 +368,10 @@ try {
     if (v.json && !v.out) process.stdout.write(toJson(r, extra));
     else if (v.out) {
       await mkdir(v.out, { recursive: true });
-      await writeFile(join(v.out, 'report.md'), md);
-      await writeFile(join(v.out, 'report.json'), toJson(r, extra));
+      await writeSafe(join(v.out, 'report.md'), md);
+      await writeSafe(join(v.out, 'report.json'), toJson(r, extra));
       if (v.html !== false) {
-        await writeFile(join(v.out, 'report.html'), toHtml(r, { ...extra, win }));
+        await writeSafe(join(v.out, 'report.html'), toHtml(r, { ...extra, win }));
       }
       const t = r.totals;
       console.error(toTerminal(r, { color: process.stderr.isTTY && !process.env.NO_COLOR, spikes: extra.spikes }) + '\n');
