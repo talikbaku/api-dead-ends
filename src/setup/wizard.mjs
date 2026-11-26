@@ -52,9 +52,11 @@ export async function runInit(io) {
   /** @type {import('./plan.mjs').Config['source']} */
   const source = { type: src.id };
   if (src.id === 'elasticsearch') {
-    const acc = await ask('Access: 1) paste a query into Kibana Dev Tools (no key needed)  2) read-only API key [1]: ', f.access === 'api-key' ? '2' : '1');
-    source.access = acc.trim() === '2' || acc === 'api-key' ? 'api-key' : 'paste';
-    source.index = await ask(`Index pattern [${f.index || 'logs-*'}]: `, f.index || 'logs-*');
+    const accDef = f.access === 'api-key' ? '2' : f.access === 'paste' ? '3' : '1';
+    const acc = await ask(`Access: 1) Kibana login in a browser (recommended, needs Playwright)  2) read-only API key  3) paste a query into Dev Tools by hand [${accDef}]: `, accDef);
+    source.access = /^(2|api-key)$/.test(acc.trim()) ? 'api-key' : /^(3|paste)$/.test(acc.trim()) ? 'paste' : 'kibana';
+    if (source.access === 'kibana') source.url = await ask(`Kibana Discover URL with your data view [${f.url || 'https://kibana.example/app/discover'}]: `, f.url || 'https://kibana.example/app/discover');
+    else source.index = await ask(`Index pattern [${f.index || 'logs-*'}]: `, f.index || 'logs-*');
     if (source.access === 'api-key') source.url = await ask(`Elasticsearch URL [${f.url || 'https://localhost:9200'}]: `, f.url || 'https://localhost:9200');
   }
   if (src.id === 'accesslog' || src.id === 'csv') source.files = await ask(`File(s) or glob [${f.files || (src.id === 'csv' ? 'export.csv' : '/var/log/nginx/access.log*')}]: `, f.files || (src.id === 'csv' ? 'export.csv' : '/var/log/nginx/access.log*'));

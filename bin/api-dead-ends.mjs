@@ -59,6 +59,7 @@ Commands:
       accesslog only: --duplicates dup.json [--dup-window 2]  repeated POST/PUT/PATCH/DELETE from the same client
       Turn the saved response into a usage table (method,path,calls,first_seen,last_seen,status).
   api-dead-ends fetch elasticsearch --url <es-url> --index <pattern> [--service X] [--days 15] [-o usage.csv]
+  api-dead-ends fetch kibana --url "<Kibana Discover URL>" --service X [--days 15]   (browser login, needs Playwright)
       Pull the usage table straight from Elasticsearch/OpenSearch (API key in ES_API_KEY). Read-only, 3-hour windows.
   api-dead-ends report --usage <usage.csv|json> --spec <openapi.json> [options]
       --days N            window length (default: inferred from first/last seen)
@@ -154,7 +155,10 @@ Turns saved responses into a usage table (method,path,calls,first_seen,last_seen
   --duplicates F [--dup-window 2]   accesslog only: repeated POST/PUT/PATCH/DELETE from the same client
   --preset / --map / field flags as for query`,
   fetch: `api-dead-ends fetch elasticsearch --url URL --index P [--service S] [--days N] [--spec F] [--daily] [-o usage.csv]
-Pulls the usage table straight from Elasticsearch/OpenSearch with a read-only key in ES_API_KEY. 3-hour windows, split on timeout.`,
+Pulls the usage table straight from Elasticsearch/OpenSearch with a read-only key in ES_API_KEY. 3-hour windows, split on timeout.
+api-dead-ends fetch kibana --url "<Kibana Discover URL>" --service S [--days N] [--daily] [--spec F] [--exclude-filter Q] [-o usage.csv]
+Only a browser login to Kibana? A browser opens, you log in, and the tool runs the same read-only aggregation through
+Kibana's Dev Tools proxy with your session (needs Playwright). Nothing is saved to disk. Fields are detected per service.`,
   report: `api-dead-ends report --usage usage.csv --spec openapi.json [--days N] [--out DIR] [--json]
 Writes report.md, report.json and report.html (with --out), or prints Markdown / JSON.
   --days N          window length when the data has no dates     --rare N         fewer calls = rare (default 100)
@@ -307,8 +311,18 @@ try {
     if (v.out) { await writeFile(v.out, csv); console.error(`${acc.size} method+path pairs → ${v.out}`); } else process.stdout.write(csv);
     if (!spec && pos[1] !== 'csv') console.error('Note: no --spec given. Pass the same --spec as for `report`, so literal path segments from your spec (v1beta1, oauth2…) are not folded into {id}.');
     if (acc.size && [...acc.values()].every((r) => !r.first_seen)) console.error('Note: the response has no first/last seen dates. Pass --days N to `report` so it knows the window length.');
+  } else if (cmd === 'fetch' && pos[1] === 'kibana') {
+    if (!v.url || !v.service) fail('Usage: api-dead-ends fetch kibana --url "<Kibana Discover URL with the data view>" --service <name> [--days 15] [--daily] [--spec F] [-o usage.csv]');
+    const { fetchKibana } = await import('../src/adapters/kibana.mjs');
+    const { rows, skipped } = await fetchKibana({ ...fields, url: String(v.url), service: String(v.service), days: v.days ? Number(v.days) : 15, log: (m) => console.error(m) });
+    /** @type {Map<string, any>} */
+    const acc = new Map();
+    for (const r of rows) addRow(acc, r, { keep, daily: v.daily });
+    const csv = toCsv([...acc.values()].sort((a, b) => b.calls - a.calls));
+    if (v.out) { await writeFile(v.out, csv); console.error(`${acc.size} rows → ${v.out}`); } else process.stdout.write(csv);
+    if (skipped.length) console.error(`WARNING: ${skipped.length} time windows skipped — usage table is incomplete.`);
   } else if (cmd === 'fetch') {
-    if (pos[1] !== 'elasticsearch' || !v.url || !v.index) fail('Usage: api-dead-ends fetch elasticsearch --url <es-url> --index <pattern> [--service X]');
+    if (pos[1] !== 'elasticsearch' || !v.url || !v.index) fail('Usage: api-dead-ends fetch elasticsearch --url <es-url> --index <pattern> [--service X]\n       api-dead-ends fetch kibana --url "<Kibana Discover URL>" --service X   (log in in the browser; needs Playwright)');
     const key = process.env.ES_API_KEY;
     const search = async (/** @type {any} */ body) => {
       const r = await fetch(`${String(v.url).replace(/\/$/, '')}/${encodeURIComponent(String(v.index))}/_search`, {

@@ -11,6 +11,7 @@
 - `probe <url>`: front-end API calls sent several times per page load, broken and slow calls, spec coverage (Playwright, optional).
 - Duplicates: repeated POST/PUT/PATCH/DELETE from one client in access logs (`convert accesslog --duplicates`).
 - Not logged: `coverage` (ingress/APM vs app logs) and `logging-check` (explicit "do not log" settings in code and config).
+- `fetch kibana`: export through a browser login to Kibana (no ES URL or API key needed).
 - `spec from-next`: Next.js routes from `app/**/route.*` and `pages/api`.
 - MCP write tools `init` and `write_report` (only the config and `.api-dead-ends/`); per-command `--help`.
 - Node.js 20+ (22+ recommended).

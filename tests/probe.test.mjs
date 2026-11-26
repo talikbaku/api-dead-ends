@@ -41,3 +41,33 @@ test('probe: duplicates per page load, broken and slow calls, spec coverage; log
     srv.close();
   }
 });
+
+test('fetch kibana: logs in through the browser session, detects fields, pulls windows via the Dev Tools proxy', { skip: !pw && 'Playwright not installed' }, async () => {
+  const { fetchKibana } = await import('../src/adapters/kibana.mjs');
+  let searches = 0;
+  const srv = createServer((req, res) => {
+    let body = '';
+    req.on('data', (d) => { body += d; });
+    req.on('end', () => {
+      res.setHeader('content-type', 'application/json');
+      if (req.url.startsWith('/api/data_views/data_view/dv-12345678')) return res.end(JSON.stringify({ data_view: { title: 'logs-*', timeFieldName: '@timestamp',
+        fields: { a: { name: 'http.request.method', aggregatable: true }, b: { name: 'url.original', aggregatable: true }, c: { name: 'http.response.status_code', aggregatable: true } } } }));
+      if (req.url.startsWith('/api/console/proxy')) {
+        searches++;
+        const q = JSON.parse(body);
+        if (q.aggs?.has) return res.end(JSON.stringify({ aggregations: { has: { buckets: { 'http.request.method': { doc_count: 10 }, 'url.original': { doc_count: 10 }, 'http.response.status_code': { doc_count: 10 } } } } }));
+        return res.end(JSON.stringify({ aggregations: { ep: { buckets: [{ key: { method: 'GET', path: '/api/products' }, doc_count: 5, status: { buckets: [{ key: 200, doc_count: 5 }] } }] } } }));
+      }
+      res.setHeader('content-type', 'text/html'); res.end('<html><body>Kibana</body></html>');
+    });
+  });
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  const url = `http://127.0.0.1:${srv.address().port}/app/discover#/?_a=(dataSource:(dataViewId:'dv-12345678',type:dataView))`;
+  try {
+    const { rows, skipped } = await fetchKibana({ url, service: 'shop', days: 1, daily: true });
+    assert.equal(skipped.length, 0);
+    assert.ok(rows.length >= 8, 'one row per 3-hour window');
+    assert.ok(rows.every((r) => r.path === '/api/products' && r.day));
+    assert.ok(searches >= 9, 'one probe + one search per 3-hour window');
+  } finally { srv.close(); }
+});

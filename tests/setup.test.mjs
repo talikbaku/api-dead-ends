@@ -73,7 +73,7 @@ test('init --yes --json --dry-run: plan for every service, nothing written', () 
 test('init interactive via pipe: answers by line, Enter = default; refuses to overwrite', () => {
   const dir = makeRepo();
   // source 1 (ES) · access 1 · index · services 3,4 (gateway, orders: alphabetical scan) · per service: log name, spec, (routes) · days · AI 2 · confirm
-  const answers = ['1', '1', 'logs-shop-*', '3,4', 'gateway-svc', '', 'orders-svc', '', 'services/orders/routes.txt', '30', '2', 'y'].join('\n') + '\n';
+  const answers = ['1', '3', 'logs-shop-*', '3,4', 'gateway-svc', '', 'orders-svc', '', 'services/orders/routes.txt', '30', '2', 'y'].join('\n') + '\n';
   const r = run(dir, ['init'], answers);
   assert.equal(r.status, 0, r.stderr + r.stdout);
   const cfg = JSON.parse(readFileSync(join(dir, 'api-dead-ends.config.json'), 'utf8'));

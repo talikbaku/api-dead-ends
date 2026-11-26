@@ -72,6 +72,8 @@ npx api-dead-ends init
 
 `init` scans your repo (services, languages, frameworks, specs), asks a few questions — Enter accepts the default — and writes `.api-dead-ends/NEXT-STEPS.md` with the exact commands for each service. It never changes your code.
 
+**Only a browser login to Kibana?** `npx api-dead-ends fetch kibana --url "<Discover URL>" --service my-api --daily -o usage.csv` — a browser opens, you log in, and the export runs through your session (needs Playwright; nothing is saved).
+
 **Already have an export** from Kibana, Datadog, Prometheus…? Two commands:
 
 ```bash

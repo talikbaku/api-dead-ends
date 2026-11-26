@@ -8,7 +8,7 @@
 
 /** @type {SourceInfo[]} */
 export const SOURCES = [
-  { id: 'elasticsearch', label: 'Elasticsearch / Kibana / OpenSearch', verified: true, history: 'log retention (often 7–30 days)', defaultDays: 15, access: ['api-key', 'paste'], env: ['ES_API_KEY'], hint: 'logs with method, path and status fields' },
+  { id: 'elasticsearch', label: 'Elasticsearch / Kibana / OpenSearch', verified: true, history: 'log retention (often 7–30 days)', defaultDays: 15, access: ['kibana', 'api-key', 'paste'], env: ['ES_API_KEY'], hint: 'logs with method, path and status fields' },
   { id: 'datadog-apm', label: 'Datadog APM (trace metrics)', verified: false, history: '~15 months', defaultDays: 90, access: ['paste'], env: ['DD_API_KEY', 'DD_APP_KEY'], hint: 'best for "not called": months of history' },
   { id: 'datadog', label: 'Datadog Logs / Spans', verified: false, history: '~15 days', defaultDays: 15, access: ['paste'], env: ['DD_API_KEY', 'DD_APP_KEY'], hint: 'exact paths' },
   { id: 'prometheus', label: 'Prometheus / Thanos / Mimir / VictoriaMetrics', verified: false, history: '15 days (Prometheus) to months (long-term stores)', defaultDays: 30, access: ['paste'], hint: 'HTTP metrics with method/route/status labels' },
@@ -134,7 +134,9 @@ export function buildSteps(c) {
     const days = ` --days ${c.days}`;
     const svc = ` --service ${q(s.logName)}`;
     if (t === 'elasticsearch') {
-      if (c.source.access === 'api-key') {
+      if (c.source.access === 'kibana') {
+        steps.push({ title: 'Pull the usage table through Kibana (a browser opens; log in; needs Playwright: npm i -D playwright && npx playwright install chromium)', cmd: `${ade} fetch kibana --url ${q(c.source.url || 'https://kibana.example/app/discover')}${svc}${days}${specFlag} --daily -o ${usage}` });
+      } else if (c.source.access === 'api-key') {
         steps.push({ title: 'Pull the usage table from Elasticsearch (first: export ES_API_KEY=<read-only key> in your shell)', cmd: `${ade} fetch elasticsearch --url ${q(c.source.url || 'https://es.example:9200')} --index ${q(c.source.index || 'logs-*')}${svc}${days}${specFlag} --daily -o ${usage}` });
       } else {
         steps.push({ title: 'Print the query (skip if a colleague already gave you the response)', cmd: `${ade} query elasticsearch${svc}${days} --index ${q(c.source.index || 'logs-*')}${specFlag} --response ${dir}/response.json > ${dir}/query.txt` });
