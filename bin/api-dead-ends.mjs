@@ -330,33 +330,27 @@ try {
     if (v.out) { await writeFile(v.out, csv); console.error(`${acc.size} method+path pairs → ${v.out}`); } else process.stdout.write(csv);
     if (!spec && pos[1] !== 'csv') console.error('Note: no --spec given. Pass the same --spec as for `report`, so literal path segments from your spec (v1beta1, oauth2…) are not folded into {id}.');
     if (acc.size && [...acc.values()].every((r) => !r.first_seen)) console.error('Note: the response has no first/last seen dates. Pass --days N to `report` so it knows the window length.');
+  } else if (cmd === 'fetch' && !['kibana', 'victorialogs', 'elasticsearch'].includes(String(pos[1]))) {
+    fail('Usage: api-dead-ends fetch elasticsearch|kibana|victorialogs …   (api-dead-ends fetch --help)');
   } else if (cmd === 'fetch' && pos[1] === 'kibana') {
     if (!v.url || !v.service) fail('Usage: api-dead-ends fetch kibana --url "<Kibana Discover URL with the data view>" --service <name> [--days 15] [--daily] [--spec F] [-o usage.csv]');
     const { fetchKibana } = await import('../src/adapters/kibana.mjs');
-    const { rows, skipped, errors } = await fetchKibana({ ...fields, url: String(v.url), service: String(v.service), days: v.days ? Number(v.days) : 15, log: (m) => console.error(m),
-      errors: !!v.errors, errorHours: v['error-hours'] ? Number(v['error-hours']) : 24, traceField: v['trace-field'], errorField: v['error-field'] });
-    if (v.errors && errors) { await writeSafe(String(v.errors), JSON.stringify(errors, null, 2) + '\n'); console.error(`Error texts for ${errors.endpoints.length} endpoints → ${v.errors}`); }
-    /** @type {Map<string, any>} */
-    const acc = new Map();
-    for (const r of rows) addRow(acc, r, { keep, daily: v.daily, hourly: v.hourly });
-    const csv = toCsv([...acc.values()].sort((a, b) => b.calls - a.calls));
-    if (v.out) { await writeFile(v.out, csv); console.error(`${acc.size} rows → ${v.out}`); } else process.stdout.write(csv);
+    const { rows, skipped, errors } = await fetchKibana({ ...fields, url: String(v.url), service: String(v.service), days: numFlag('days', 1, 3650) ?? 15, log: (m) => console.error(m),
+      errors: !!v.errors, errorHours: numFlag('error-hours', 1, 24 * 31) ?? 24, traceField: v['trace-field'], errorField: v['error-field'] });
+    await writeFetched(rows, errors);
     if (skipped.length) console.error(`WARNING: ${skipped.length} time windows skipped — usage table is incomplete.`);
   } else if (cmd === 'fetch' && pos[1] === 'victorialogs') {
     if (!v.url) fail('Usage: api-dead-ends fetch victorialogs --url http://<victoria-logs>:9428 [--service X] [--days 7] [--hourly] [--errors errors.json] [-o usage.csv]');
     const { fetchVictoriaLogs, httpRequest } = await import('../src/adapters/vlogs.mjs');
-    const { rows, truncated, errors } = await fetchVictoriaLogs(httpRequest(String(v.url), { tenant: v.tenant }), { ...fields, days: v.days ? Number(v.days) : 7,
-      errors: !!v.errors, errorHours: v['error-hours'] ? Number(v['error-hours']) : 24, traceField: v['trace-field'], errorField: v['error-field'],
-      maxRows: v['max-rows'] ? Number(v['max-rows']) : undefined, log: (m) => console.error(m) });
-    if (v.errors && errors) { await writeSafe(String(v.errors), JSON.stringify(errors, null, 2) + '\n'); console.error(`Error texts for ${errors.endpoints.length} endpoints → ${v.errors}`); }
-    /** @type {Map<string, any>} */
-    const acc = new Map();
-    for (const r of rows) addRow(acc, r, { keep, daily: v.daily, hourly: v.hourly });
-    const csv = toCsv([...acc.values()].sort((a, b) => b.calls - a.calls));
-    if (v.out) { await writeFile(v.out, csv); console.error(`${acc.size} rows → ${v.out}`); } else process.stdout.write(csv);
+    if (v.tenant !== undefined && !/^\d{1,10}(:\d{1,10})?$/.test(String(v.tenant))) fail('--tenant must be AccountID:ProjectID, e.g. 0:0');
+    const { rows, truncated, errors } = await fetchVictoriaLogs(httpRequest(String(v.url), { tenant: v.tenant }), { ...fields, days: numFlag('days', 1, 3650) ?? 7,
+      errors: !!v.errors, errorHours: numFlag('error-hours', 1, 24 * 31) ?? 24, traceField: v['trace-field'], errorField: v['error-field'],
+      maxRows: numFlag('max-rows', 1, 10_000_000), log: (m) => console.error(m) });
+    await writeFetched(rows, errors);
     if (truncated.length) console.error(`WARNING: ${truncated.length} day(s) cut at --max-rows — usage table is incomplete.`);
   } else if (cmd === 'fetch') {
     if (pos[1] !== 'elasticsearch' || !v.url || !v.index) fail('Usage: api-dead-ends fetch elasticsearch --url <es-url> --index <pattern> [--service X]\n       api-dead-ends fetch victorialogs --url http://<victoria-logs>:9428 [--service X]\n       api-dead-ends fetch kibana --url "<Kibana Discover URL>" --service X   (log in in the browser; needs Playwright)');
+    if (v.errors) fail('--errors works with fetch kibana and fetch victorialogs; for fetch elasticsearch it is not supported yet.');
     const key = process.env.ES_API_KEY;
     const search = async (/** @type {any} */ body) => {
       const r = await fetch(`${String(v.url).replace(/\/$/, '')}/${encodeURIComponent(String(v.index))}/_search`, {
@@ -373,7 +367,7 @@ try {
     const acc = new Map();
     for (const r of rows) addRow(acc, r, { keep, daily: v.daily, hourly: v.hourly });
     const csv = toCsv([...acc.values()].sort((a, b) => b.calls - a.calls));
-    if (v.out) await writeFile(v.out, csv); else process.stdout.write(csv);
+    if (v.out) await writeSafe(String(v.out), csv); else process.stdout.write(csv);
     if (skipped.length) console.error(`WARNING: ${skipped.length} time windows skipped — usage table is incomplete.`);
   } else if (cmd === 'report') {
     if (!v.usage || !spec) fail('Usage: api-dead-ends report --usage <usage.csv> --spec <openapi.json>\n  usage.csv comes from `convert` or `fetch` (traffic data). No spec? `api-dead-ends spec from-routes <routes.txt>`. Not sure where to start? `api-dead-ends init`.');
@@ -396,12 +390,13 @@ try {
     // With per-day data the window is what the data covers; --days only applies to tables without dates.
     const win = hasDays ? computeWindows(dailyRows, spec, { ...cOpt, includeToday: v['include-today'] }) : null;
     if (win && v.days && Number(v.days) !== win.windows.all.window.days) console.error(`Note: the data covers ${win.windows.all.window.days} days; --days ${v.days} is ignored for per-day data.`);
-    if (win?.droppedToday) console.error('Note: today is incomplete and left out of the windows (add --include-today to look at an incident in progress).');
+    if (win?.droppedToday) console.error(`Note: today is incomplete and left out of the 30/7/3/1-day windows (add --include-today to count it)${hourlyRows.some((x) => x.hour) ? '; "What changed today" always uses today\'s full hours' : ''}.`);
+    if (v.tz) { try { new Intl.DateTimeFormat('en-US', { timeZone: String(v.tz) }); } catch { console.error(`Note: unknown time zone --tz ${v.tz}; hours are shown in UTC only.`); } }
     const r = win ? win.windows.all : classify(rows, spec, { ...cOpt, days: num('days', 1, 3650) });
     const { computeChanges } = await import('../src/changes.mjs');
     const changes = hourlyRows.some((x) => x.hour) ? computeChanges(hourlyRows, spec) : null;
     const extra = { spikes: win?.spikes || [], toolVersion: VERSION, changes, tz: v.tz,
-      errors: v.errors ? JSON.parse(await readFile(v.errors, 'utf8')) : null,
+      errors: v.errors ? errorsFile(JSON.parse(await readFile(v.errors, 'utf8'))) : null,
       probe: v.probe ? JSON.parse(await readFile(v.probe, 'utf8')) : null,
       duplicates: v.duplicates ? JSON.parse(await readFile(v.duplicates, 'utf8')) : null };
     const md = toMarkdown(r, extra);
@@ -428,6 +423,32 @@ try {
 } catch (e) {
   console.error(`Error: ${String(/** @type {Error} */ (e).message).split('\n')[0]}`);
   process.exit(2);
+}
+
+function errorsFile(/** @type {any} */ j) {
+  if (!j || !Array.isArray(j.endpoints)) fail(`${v.errors} is not an error-texts file (from fetch kibana|victorialogs --errors).`);
+  return j;
+}
+
+/** @param {string} k @param {number} min @param {number} max */
+function numFlag(k, min, max) {
+  if (v[k] === undefined) return undefined;
+  const x = Number(v[k]);
+  if (!Number.isFinite(x) || x < min || x > max) fail(`--${k} must be a number between ${min} and ${max}`);
+  return x;
+}
+
+/** fetch output: the usage table first (the main result), then error texts. @param {any[]} rows @param {any} errors */
+async function writeFetched(rows, errors) {
+  /** @type {Map<string, any>} */
+  const acc = new Map();
+  for (const r of rows) addRow(acc, r, { keep, daily: v.daily, hourly: v.hourly });
+  const csv = toCsv([...acc.values()].sort((a, b) => b.calls - a.calls));
+  if (v.out) { await writeSafe(String(v.out), csv); console.error(`${acc.size} rows → ${v.out}`); } else process.stdout.write(csv);
+  if (v.errors && errors) {
+    try { await writeSafe(String(v.errors), JSON.stringify(errors, null, 2) + '\n'); console.error(`Error texts for ${errors.endpoints.length} endpoints → ${v.errors}`); }
+    catch (e) { console.error(`Could not write ${v.errors}: ${String(/** @type {Error} */ (e).message).split('\n')[0]}`); process.exitCode = 1; }
+  } else if (v.errors) console.error('No error texts collected (see the messages above).');
 }
 
 /** @param {string} msg @returns {never} */

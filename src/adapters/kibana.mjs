@@ -76,9 +76,10 @@ export async function fetchKibana(o) {
     const res = await collect(search, { ...o, ...F, serviceField: svcField, timeField, days: o.days ?? 15, onProgress: log, rawPath: /http\.route/.test(String(F.pathField)) });
     /** @type {any} */
     let errors = null;
-    if (o.errors) {
+    if (o.errors) try {
       // which trace / error fields does this service fill? (counts only)
       const cands = ERROR_FIELD_CANDIDATES.filter((n) => agg.has(n) || agg.has(`${n}.keyword`));
+      if (!cands.length) throw new Error('no trace or error-message field in this data view (pass --trace-field / --error-field)');
       const pr = await search({ size: 0, query: { bool: { filter: [{ match_phrase: { [svcField]: o.service } }, { range: { [timeField]: { gte: `now-${o.errorHours ?? 24}h` } } }] } },
         aggs: { has: { filters: { filters: Object.fromEntries(cands.map((n) => [n, { exists: { field: n } }])) } } } });
       const ec = new Map(Object.entries(pr.aggregations.has.buckets).map(([n, b]) => [n, /** @type {any} */ (b).doc_count]));
@@ -90,6 +91,9 @@ export async function fetchKibana(o) {
         errors = await collectErrors(search, { ...o, ...F, serviceField: svcField, timeField, traceField, errorField, hours: o.errorHours ?? 24, rawPath: /http\.route/.test(String(F.pathField)),
           methodField: String(F.methodField), pathField: String(F.pathField), statusField: String(F.statusField) });
       }
+    } catch (e) {
+      // the usage table is the main result: a failure here must not lose it
+      log(`Error texts skipped: ${String(/** @type {Error} */ (e).message).split('\n')[0].slice(0, 200)}`);
     }
     return { ...res, errors };
   } finally {

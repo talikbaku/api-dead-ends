@@ -4,6 +4,8 @@
 // 200 characters, one example trace id per message. Only aggregates and short texts leave the cluster.
 
 import { NORMALIZE_PAINLESS } from './elasticsearch.mjs';
+import { templatePath } from '../template.mjs';
+import { cleanText } from '../usage.mjs';
 
 const TRACE = ['trace.id', 'x-trace-id', 'trace_id', 'traceId', 'traceid', 'request_id', 'x-request-id'];
 const ERROR = ['error.message', 'error.msg', 'err.message', 'exception.message', 'error.type'];
@@ -24,14 +26,33 @@ export function pickErrorFields(agg, counts) {
 
 export const ERROR_FIELD_CANDIDATES = [...TRACE, ...ERROR];
 
-/** Mask what identifies people or objects, keep the shape of the message. @param {string} s */
+/**
+ * Mask what identifies people, objects or secrets; keep the shape of the message.
+ * Not a guarantee: error texts are free text — review before sharing.
+ * @param {string} s
+ */
 export function maskText(s) {
   return String(s).split('\n')[0]
+    .replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2066-\u2069]/g, ' ')
+    .replace(/eyJ[\w-]+\.[\w-]+\.[\w-]*/g, '{jwt}')
+    .replace(/\b(bearer|basic)\s+[\w.~+\/=-]+/gi, '$1 {secret}')
+    .replace(/\b([\w-]*(?:token|secret|password|passwd|pwd|api[_-]?key|apikey|auth|session|cookie)[\w-]*)(["']?\s*[=:]\s*["']?)(?:(?:bearer|basic)\s+)?[^\s"'&,;)]+/gi, '$1$2{secret}')
+    .replace(/\b[a-z][\w+.-]*:\/\/[^\s\/@]+@/gi, (m) => m.replace(/\/\/[^\s\/@]+@/, '//{user}@'))
+    .replace(/\?[^\s"']+/g, '?{query}')
     .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, '{uuid}')
     .replace(/[\w.+-]+@[\w-]+\.[\w.]+/g, '{email}')
+    .replace(/\b(?:\d{1,3}\.){3}\d{1,3}\b/g, '{ip}')
+    .replace(/\b(?:[0-9a-f]{1,4}:){2,7}[0-9a-f]{0,4}\b/gi, (m) => (/[0-9]/.test(m) && m.split(':').length > 3 ? '{ip}' : m))
+    .replace(/=\(([^)]*)\)/g, '=({value})')
+    .replace(/\b(?=[A-Za-z0-9_-]{16,}\b)(?=[A-Za-z_-]*\d)(?=\d*[A-Za-z])[A-Za-z0-9_-]+/g, '{token}')
     .replace(/\d{3,}/g, '{n}')
-    .replace(/[\u0000-\u001f\u007f]/g, ' ')
     .slice(0, 200);
+}
+
+const PLACEHOLDER = new Set(['-', '0', 'null', 'undefined', 'none', 'nil', 'n/a', 'unknown']);
+/** A usable trace id: long enough and varied, not a placeholder a client could send on purpose. @param {string} x */
+export function goodTraceId(x) {
+  return /^[\w.:-]{8,128}$/.test(x) && !PLACEHOLDER.has(x.toLowerCase()) && new Set(x).size >= 4;
 }
 
 /**
@@ -41,7 +62,8 @@ export function maskText(s) {
  */
 export async function collectErrors(search, o) {
   const since = `now-${o.hours ?? 24}h`;
-  const base = [{ range: { [o.timeField]: { gte: since } } }, ...(o.service ? [{ match_phrase: { [o.serviceField || 'service.name']: o.service } }] : [])];
+  const time = { range: { [o.timeField]: { gte: since } } };
+  const base = [time, ...(o.service ? [{ match_phrase: { [o.serviceField || 'service.name']: o.service } }] : [])];
   const mustNot = [];
   const m = o.excludeFilter && o.excludeFilter.match(/^\s*([\w.@-]+)\s*:\s*"?(.*?)"?\s*$/);
   if (m) mustNot.push(m[1].endsWith('.keyword') ? { term: { [m[1]]: m[2] } } : { match_phrase: { [m[1]]: m[2] } });
@@ -54,12 +76,13 @@ export async function collectErrors(search, o) {
   });
   const endpoints = [];
   for (const b of top.aggregations.ep.buckets) {
-    const traces = b.t.buckets.map((/** @type {any} */ x) => x.key);
+    const traces = b.t.buckets.map((/** @type {any} */ x) => String(x.key)).filter(goodTraceId);
     const messages = [];
     if (traces.length) {
       const er = await search({
         size: 0,
-        query: { bool: { filter: [...base, { terms: { [o.traceField]: traces } }], must_not: [{ exists: { field: o.statusField } }] } },
+        // any service: the error is often written by the app behind the one that answered 5xx
+        query: { bool: { filter: [time, { terms: { [o.traceField]: traces } }], must_not: [{ exists: { field: o.statusField } }] } },
         aggs: { msg: { terms: { field: o.errorField, size: 50 }, aggs: { first: { min: { field: o.timeField } }, ex: { top_hits: { size: 1, sort: [{ [o.timeField]: 'desc' }], _source: [o.traceField.replace(/\.keyword$/, '')] } } } } },
       });
       /** @type {Map<string, { text: string, count: number, firstSeen: string, trace: string }>} */
@@ -75,7 +98,8 @@ export async function collectErrors(search, o) {
       }
       messages.push(...[...grouped.values()].sort((a, c) => c.count - a.count).slice(0, 8));
     }
-    endpoints.push({ method: b.m.buckets[0]?.key || '', path: b.key, errors5xx: b.doc_count, traces: traces.length, messages });
+    const m0 = String(b.m.buckets[0]?.key || '').toUpperCase();
+    endpoints.push({ method: /^[A-Z]{1,10}$/.test(m0) ? m0 : 'OTHER', path: cleanText(templatePath(String(b.key), { keep: new Set(o.keep ?? []) })), errors5xx: b.doc_count, traces: traces.length, messages });
   }
   return {
     since: `last ${o.hours ?? 24} h`,

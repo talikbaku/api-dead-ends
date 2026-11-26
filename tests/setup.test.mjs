@@ -366,7 +366,7 @@ test('error texts: masking and grouping through traces (mock search)', async () 
   const calls = [];
   const search = async (q) => {
     calls.push(q);
-    if (q.aggs.ep) return { aggregations: { ep: { buckets: [{ key: '/orders/{id}', doc_count: 9, m: { buckets: [{ key: 'DELETE' }] }, t: { buckets: [{ key: 't1' }, { key: 't2' }] } }] } } };
+    if (q.aggs.ep) return { aggregations: { ep: { buckets: [{ key: '/orders/{id}', doc_count: 9, m: { buckets: [{ key: 'DELETE' }] }, t: { buckets: [{ key: '4bf92f3577b34da6a3ce929d0e0e4736' }, { key: '00f067aa0ba902b74bf92f3577b34da6' }, { key: '-' }] } }] } } };
     return { aggregations: { msg: { buckets: [
       { key: 'Order 00268d8f-a131-45be-9a96-ed114ca7bf3a has active tx', doc_count: 2, first: { value_as_string: '2026-11-26T06:00:00Z' }, ex: { hits: { hits: [{ _source: { 'x-trace-id': 't1' } }] } } },
       { key: 'Order 014d4d69-5355-4e2b-aae6-384304e6414c has active tx', doc_count: 3, first: { value_as_string: '2026-11-26T05:00:00Z' }, ex: { hits: { hits: [{ _source: { 'x-trace-id': 't2' } }] } } },
@@ -375,6 +375,26 @@ test('error texts: masking and grouping through traces (mock search)', async () 
   const r = await collectErrors(search, { methodField: 'http.request.method', pathField: 'url.original', statusField: 'http.response.status_code', timeField: '@timestamp', traceField: 'x-trace-id', errorField: 'error.message.keyword', service: 'svc' });
   assert.equal(r.endpoints[0].messages.length, 1, 'same message with different IDs is grouped');
   assert.deepEqual([r.endpoints[0].messages[0].text, r.endpoints[0].messages[0].count, r.endpoints[0].messages[0].firstSeen], ['Order {uuid} has active tx', 5, '2026-11-26T05:00:00Z']);
+  assert.equal(r.endpoints[0].traces, 2, 'placeholder trace id "-" is dropped');
+  const traceQ = calls.find((q) => q.aggs.msg);
+  assert.equal(JSON.stringify(traceQ.query).includes('svc'), false, 'the trace query is not limited to the service');
+});
+
+test('error texts: secrets and personal data are masked; weak trace ids are refused', async () => {
+  const { maskText, goodTraceId } = await import('../src/adapters/errortexts.mjs');
+  const m = (/** @type {string} */ x) => maskText(x);
+  assert.equal(m('invalid token eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.abc-def_1'), 'invalid token {jwt}');
+  assert.equal(m('Authorization: Bearer abc.def-123'), 'Authorization: {secret}');
+  assert.equal(m('GET /a?token=s3cret&x=1 failed'), 'GET /a?{query} failed');
+  assert.equal(m('password=hunter2 rejected'), 'password={secret} rejected');
+  assert.equal(m('connect to postgres://admin:pw@db:5432 failed'), 'connect to postgres://{user}@db:{n} failed');
+  assert.equal(m('peer 10.0.0.12 reset'), 'peer {ip} reset');
+  assert.equal(m('Key (username)=(jdoe) already exists'), 'Key (username)=({value}) already exists');
+  assert.equal(m('api key sk_live_51HxAbCdEf12345678 revoked'), 'api key {token} revoked');
+  assert.equal(m('bidi \u202etxt.exe\u001b[31m'), 'bidi  txt.exe [31m');
+  assert.equal(m('canceling statement due to user request'), 'canceling statement due to user request');
+  for (const bad of ['-', '0', 'null', 'aaaaaaaa', 'short']) assert.equal(goodTraceId(bad), false, bad);
+  assert.equal(goodTraceId('4bf92f3577b34da6a3ce929d0e0e4736'), true);
 });
 
 test('error fields: the field this service fills wins over an empty one', async () => {

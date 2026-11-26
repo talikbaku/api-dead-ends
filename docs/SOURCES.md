@@ -5,7 +5,7 @@ Back to [README](../README.md). Every source works the same way: `query <source>
 
 | Source | Command | History it usually keeps | Verified |
 |---|---|---|---|
-| Elasticsearch / OpenSearch / Kibana | `query elasticsearch`, `fetch elasticsearch`, `fetch kibana` (`--hourly`, `--errors`) | log retention (often 7–30 days) | ✅ real data |
+| Elasticsearch / OpenSearch / Kibana | `query elasticsearch`, `fetch elasticsearch` (`--hourly`), `fetch kibana` (`--hourly`, `--errors`) | log retention (often 7–30 days) | ✅ real data |
 | Datadog APM metrics | `query datadog-apm` | ~15 months — best for "not seen" | docs only |
 | Datadog Logs / Spans | `query datadog` | ~15 days | docs only |
 | Prometheus, Thanos, Mimir, VictoriaMetrics | `query prometheus --preset …` | 15 days to months | docs only |

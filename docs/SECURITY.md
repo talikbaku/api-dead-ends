@@ -17,7 +17,9 @@ Back to [README](../README.md). Report a vulnerability privately via GitHub → 
 
 ## What the tool never does
 
-No network calls (except `fetch elasticsearch` to the URL you give with the key from `ES_API_KEY`, and `probe <url>` to the site you name), no `eval`, no child processes, no changes to your code, no overwriting files without `--force`.
+No network calls (except `fetch elasticsearch` to the URL you give with the key from `ES_API_KEY`, `fetch kibana` through your own browser login, `fetch victorialogs` to the URL you give — read-only LogsQL, optional `VL_AUTH` header, refused over plain http to anything but localhost, no redirects — and `probe <url>` to the site you name), no `eval`, no child processes, no changes to your code, no overwriting files without `--force` (`init`; outputs you name with `-o`/`--out` are replaced, but never through a symlink).
+
+Error texts (`--errors`) are free text from your logs. They are masked (UUIDs, numbers, e-mails, IPs, JWTs, bearer/basic credentials, `token=`/`password=` values, URL query strings, long mixed tokens, database key values) and cut to 200 characters, but masking is a safety net, not a guarantee: read `errors.json` before you share a report. Trace ids that look like placeholders (`-`, `null`, short or repetitive values) are ignored, so a client cannot pull other services' logs into your report by sending a common request id.
 
 ## Reviews
 

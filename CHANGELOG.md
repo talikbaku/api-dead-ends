@@ -16,6 +16,7 @@
 - `fetch kibana`: export through a browser login to Kibana (no ES URL or API key needed).
 - `fetch victorialogs`: VictoriaLogs over HTTP (read-only LogsQL); method/path/status/trace fields detected from the data (Kong, APISIX, nginx, Envoy, OpenTelemetry names); IDs folded on the server; `--hourly`, `--errors` (error texts from app logs in the same traces), `--tenant`, `VL_AUTH`.
 - What changed: peak req/s today vs before, "calls and 5xx up together"; the last hour of an export made mid-hour is not compared.
+- After review: "before" averaged per hour over the days that have it (partial first day no longer halves it); error-text failures no longer lose the usage table; error texts look in all services of the same traces and ignore placeholder trace ids; masking covers JWTs, credentials, query strings, IPs and long tokens; Prometheus hourly/daily points labelled by the start of their step; numeric flags validated; HTML opens on "What changed today" when 5xx went up.
 - `spec from-next`: Next.js routes from `app/**/route.*` and `pages/api`.
 - MCP write tools `init` and `write_report` (only the config and `.api-dead-ends/`); per-command `--help`.
 - Node.js 20+ (22+ recommended).

@@ -21,13 +21,13 @@ function fake(calls = [], today = '2026-03-10') {
     calls.push({ path, ...params });
     if (path.endsWith('field_names')) return JSON.stringify(FIELDS);
     const q = params.query;
-    if (q.includes('uniq_values')) {
-      return JSON.stringify({ 'request.method': 'POST', 'request.uri': '/api/orders/{id}/pay', e5: '40', traces: ['t1', 't2', 'bad trace"'] }) + '\n';
+    if (q.includes('uniq_values') && !q.includes('trace_id:in(')) {
+      return JSON.stringify({ 'request.method': 'POST', 'request.uri': '/api/orders/{id}/pay', e5: '40', traces: JSON.stringify(['4bf92f3577b34da6a3ce929d0e0e4736', '00f067aa0ba902b74bf92f3577b34da6', 'bad trace"', '-', 'null']) }) + '\n';
     }
     if (q.includes('trace_id:in(')) {
       return [
-        { _msg: 'db timeout after 3000 ms for order 1234567', n: '30', first: '2026-03-10T09:01:00Z', ex: 't1' },
-        { _msg: 'db timeout after 3000 ms for order 7654321', n: '5', first: '2026-03-10T08:59:00Z', ex: 't2' },
+        { _msg: 'db timeout after 3000 ms for order 1234567', n: '30', first: '2026-03-10T09:01:00Z', ex: '["4bf92f3577b34da6a3ce929d0e0e4736"]' },
+        { _msg: 'db timeout after 3000 ms for order 7654321', n: '5', first: '2026-03-10T08:59:00Z', ex: '["00f067aa0ba902b74bf92f3577b34da6"]' },
       ].map((x) => JSON.stringify(x)).join('\n');
     }
     if (params.start.startsWith(today)) {
@@ -61,14 +61,14 @@ test('VictoriaLogs: hourly usage, one request per day, error texts from the same
   const pay = r.rows.find((x) => x.method === 'POST');
   assert.equal(pay.hour, '2026-03-10T09');
   assert.equal(pay.status, '500:40');
-  // error texts: bad trace ids are dropped, service filter is not applied (the app writes the error), digits masked and merged
+  // error texts: bad and placeholder trace ids are dropped, service filter is not applied (the app writes the error), digits masked and merged
   const errQ = calls.find((c) => c.query.includes('trace_id:in('));
-  assert.equal(errQ.query.startsWith('trace_id:in("t1","t2")'), true);
+  assert.equal(errQ.query.startsWith('trace_id:in("4bf92f3577b34da6a3ce929d0e0e4736","00f067aa0ba902b74bf92f3577b34da6")'), true);
   assert.equal(errQ.query.includes('container_name'), false);
   const ep = r.errors.endpoints[0];
   assert.equal(ep.errors5xx, 40);
   assert.equal(ep.traces, 2);
-  assert.deepEqual(ep.messages, [{ text: 'db timeout after {n} ms for order {n}', count: 35, firstSeen: '2026-03-10T08:59:00Z', trace: 't1' }]);
+  assert.deepEqual(ep.messages, [{ text: 'db timeout after {n} ms for order {n}', count: 35, firstSeen: '2026-03-10T08:59:00Z', trace: '4bf92f3577b34da6a3ce929d0e0e4736' }]);
 });
 
 test('VictoriaLogs: a clear error when the gateway fields are not there', async () => {

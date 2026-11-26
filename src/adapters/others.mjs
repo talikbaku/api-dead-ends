@@ -140,7 +140,8 @@ export const prometheus = {
       '# Daily buckets (step=1d) give first/last seen and per-day counts. Presets: ' + Object.keys(PROM_PRESETS).join(', '),
       `curl -sS --get 'http://<prometheus>/api/v1/query_range' \\`,
       `  --data-urlencode 'query=${q}' \\`,
-      `  --data-urlencode "start=$(( $(date +%s) - ${days} * 86400 ))" --data-urlencode "end=$(date +%s)" --data-urlencode 'step=${/** @type {any} */ (o).hourly ? 3600 : 86400}' > prometheus.json`,
+      // aligned to whole hours/days: each point covers the step before it (increase over [step]), labelled by its start
+      `  --data-urlencode "start=$(( $(date +%s) / ${(/** @type {any} */ (o).hourly ? 3600 : 86400)} * ${(/** @type {any} */ (o).hourly ? 3600 : 86400)} - ${days} * 86400 ))" --data-urlencode "end=$(( $(date +%s) / ${(/** @type {any} */ (o).hourly ? 3600 : 86400)} * ${(/** @type {any} */ (o).hourly ? 3600 : 86400)} ))" --data-urlencode 'step=${/** @type {any} */ (o).hourly ? 3600 : 86400}' > prometheus.json`,
       '# Retention: plain Prometheus often keeps 15 days; Thanos/Mimir/Grafana Cloud keep months — use those for "not seen".',
       `# Then: api-dead-ends convert prometheus prometheus.json${o.preset ? ` --preset ${o.preset}` : ` --method-field ${c.m} --path-field ${c.p} --status-field ${c.s}`}`,
     ].join('\n');
@@ -174,7 +175,8 @@ export const prometheus = {
           for (const [ts, val] of r.values) {
             const n = Math.round(Number(val));
             if (!(Number(val) > 0.5) || !n) continue;
-            const t = new Date(Number(ts) * 1000).toISOString();
+            // increase(...[step]) at ts counts (ts − step, ts]: the bucket starts one step earlier
+            const t = new Date((Number(ts) - (o.hourly ? 3600 : 86400)) * 1000).toISOString();
             out.push({ method, path, calls: n, first_seen: t, last_seen: t, day: t.slice(0, 10), ...(o.hourly ? { hour: t.slice(0, 13) } : {}), status: st ? `${st}:${n}` : '' });
           }
         } else out.push({ method, path, calls, first_seen: first, last_seen: last, status: st ? `${st}:${calls}` : '' });
@@ -249,7 +251,7 @@ export const victorialogs = {
     const m = o.methodField || 'method', p = o.pathField || 'path', s = o.statusField || 'status';
     const svc = o.service ? ` ${o.serviceField || 'container_name'}:${o.service}` : '';
     const by = `${o.hourly ? '_time:1h, ' : o.daily ? '_time:1d, ' : ''}${m}, ${p}, ${s}`;
-    const q = `_time:${o.days ?? 15}d${svc} ${m}:* ${p}:* | stats by (${by}) count() calls`;
+    const q = `_time:${o.days ?? 15}d${svc} ${m}:* ${p}:* | stats by (${by}) count() calls, min(_time) first_seen, max(_time) last_seen`;
     return [
       '# VictoriaLogs (LogsQL). Fields: adjust --method-field / --path-field / --status-field to your access-log JSON;',
       `# the service filter uses --service-field (default container_name). Check one record in VictoriaLogs UI (vmui) first.`,
@@ -271,7 +273,7 @@ export const victorialogs = {
       if (!calls || !path) continue;
       const time = j._time ? String(j._time) : '';
       const st = j[s];
-      out.push({ method: j[m] || '', path: String(path), calls, first_seen: time, last_seen: time, status: st ? `${st}:${calls}` : '', ...((o.daily || o.hourly) && time ? { day: time.slice(0, 10) } : {}), ...(o.hourly && time ? { hour: time.slice(0, 13) } : {}) });
+      out.push({ method: j[m] || '', path: String(path), calls, first_seen: String(j.first_seen || time), last_seen: String(j.last_seen || time), status: st ? `${st}:${calls}` : '', ...((o.daily || o.hourly) && time ? { day: time.slice(0, 10) } : {}), ...(o.hourly && time ? { hour: time.slice(0, 13) } : {}) });
     }
     if (!out.length && text.trim().startsWith('{') === false) throw new Error('VictoriaLogs: expected JSON lines from /select/logsql/query');
     return out;
