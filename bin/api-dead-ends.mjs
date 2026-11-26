@@ -30,6 +30,9 @@ Start here:
   api-dead-ends spec from-routes <routes.txt|json> [-o openapi.json]
                                      No OpenAPI? Build one from your framework's route list (rails routes, flask routes,
                                      Spring /actuator/mappings, Gin debug, Laravel route:list --json, "METHOD /path" lines).
+  api-dead-ends probe <url> [--pages 20] [--login] [--spec F] [--out dir]
+                                     Open the site in a browser (needs Playwright) and find API calls sent several times
+                                     per page, broken and slow calls. Navigation only, same origin, nothing saved.
   api-dead-ends mcp                  Run as an MCP server (stdio) for Claude Code, Cursor, VS Code…
   api-dead-ends utcp                 Print a UTCP manual (experimental) so UTCP clients can call this CLI directly.
 
@@ -57,6 +60,7 @@ Commands:
       --rare N            fewer calls than this = rare (default 100)
       --out DIR           write report.md + report.json there (default: print Markdown)
       --json              print report.json to stdout instead of Markdown
+      --probe FILE        add a probe.json (from \`probe --out\`) to report.html
       --baseline FILE     compare shadow endpoints with a saved baseline (CI mode)
       --fail-on LIST      new-shadow (default), deprecated-growth
       --write-baseline F  save current shadow list as a baseline
@@ -86,7 +90,8 @@ try {
     yes: { type: 'boolean', short: 'y' }, json: { type: 'boolean' }, 'dry-run': { type: 'boolean' }, force: { type: 'boolean' },
     source: { type: 'string' }, services: { type: 'string' }, routes: { type: 'string' }, access: { type: 'string' }, ai: { type: 'string' },
     files: { type: 'string' }, logs: { type: 'string' }, dir: { type: 'string' }, 'log-name': { type: 'string' },
-    response: { type: 'string' }, daily: { type: 'boolean' }, html: { type: 'boolean' }, 'error-min': { type: 'string' }, 'error-share': { type: 'string' }, title: { type: 'string' },
+    response: { type: 'string' }, daily: { type: 'boolean' }, html: { type: 'boolean' },
+    pages: { type: 'string' }, login: { type: 'boolean' }, headed: { type: 'boolean' }, probe: { type: 'string' }, 'slow-ms': { type: 'string' }, 'error-min': { type: 'string' }, 'error-share': { type: 'string' }, title: { type: 'string' },
   },
   });
 } catch (e) {
@@ -145,6 +150,29 @@ if (cmd0 === 'init') {
   }
 }
 if (cmd0 === 'utcp') { const { utcpManual } = await import('../src/utcp.mjs'); console.log(JSON.stringify(utcpManual(), null, 2)); await exitAfterFlush(0); }
+if (cmd0 === 'probe') {
+  const { probe, probeToMarkdown } = await import('../src/probe.mjs');
+  if (!pos[1]) { console.error('Usage: api-dead-ends probe <url> [--pages 20] [--login] [--spec openapi.json] [--out dir]'); process.exit(2); }
+  let pspec = null;
+  try { pspec = v.spec ? loadSpec(JSON.parse(await readFile(v.spec, 'utf8'))) : null; } catch (e) { console.error(`Error: ${String(/** @type {Error} */ (e).message).split('\n')[0]}`); process.exit(2); }
+  const { createInterface } = await import('node:readline');
+  const waitForEnter = () => new Promise((res) => { const rl = createInterface({ input: process.stdin }); rl.once('line', () => { rl.close(); res(undefined); }); });
+  try {
+    const p = await probe({ url: pos[1], pages: v.pages ? Number(v.pages) : undefined, login: v.login, headed: v.headed, slowMs: v['slow-ms'] ? Number(v['slow-ms']) : undefined, spec: pspec, log: (s) => console.error(s), waitForEnter });
+    const md = probeToMarkdown(p);
+    if (v.out) {
+      await mkdir(v.out, { recursive: true });
+      await writeFile(join(v.out, 'probe.json'), JSON.stringify(p, null, 2) + '\n');
+      await writeFile(join(v.out, 'probe.md'), md);
+      const bad = p.rows.filter((r) => r.problem);
+      console.error(`${p.pages} pages, ${p.requests} API requests, ${bad.length} problems → ${join(v.out, 'probe.md')} (add to the HTML report: report … --probe ${join(v.out, 'probe.json')})`);
+    } else process.stdout.write(md);
+  } catch (e) {
+    console.error(`Error: ${String(/** @type {Error} */ (e).message).split('\n')[0].slice(0, 300)}`); // Playwright call logs can contain cookies
+    process.exit(1);
+  }
+  await exitAfterFlush(0);
+}
 if (cmd0 === 'detect') { console.log(JSON.stringify(await detectProject(pos[1] || '.'), null, 2)); await exitAfterFlush(0); }
 if (cmd0 === 'spec') {
   if (pos[1] !== 'from-routes' || !pos[2]) { console.error('Usage: api-dead-ends spec from-routes <routes.txt|routes.json> [-o openapi.json]'); process.exit(2); }
@@ -235,7 +263,8 @@ try {
       errorMin: num('error-min', 1, 1e9), errorShare: share === undefined ? undefined : share / 100 });
     const cOpt = { rare: num('rare', 1, 1e9), keepPreflight: v['keep-preflight'], errorMin: num('error-min', 1, 1e9), errorShare: share === undefined ? undefined : share / 100 };
     const win = hasDays ? computeWindows(dailyRows, spec, { ...cOpt, days: num('days', 1, 3650) }) : null;
-    const extra = { spikes: win?.spikes || [], toolVersion: VERSION };
+    const extra = { spikes: win?.spikes || [], toolVersion: VERSION,
+      probe: v.probe ? JSON.parse(await readFile(v.probe, 'utf8')) : null };
     const md = toMarkdown(r, extra);
     if (v.json && !v.out) process.stdout.write(toJson(r, extra));
     else if (v.out) {
