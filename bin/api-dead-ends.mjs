@@ -33,6 +33,8 @@ Start here:
   api-dead-ends probe <url> [--pages 20] [--login] [--spec F] [--out dir]
                                      Open the site in a browser (needs Playwright) and find API calls sent several times
                                      per page, broken and slow calls. Navigation only, same origin, nothing saved.
+  api-dead-ends coverage --usage app.csv --reference ingress.csv [--spec F]
+                                     "Not logged": endpoints seen by the ingress / load balancer / APM but missing from app logs.
   api-dead-ends mcp                  Run as an MCP server (stdio) for Claude Code, Cursor, VS Code…
   api-dead-ends utcp                 Print a UTCP manual (experimental) so UTCP clients can call this CLI directly.
 
@@ -93,7 +95,7 @@ try {
     source: { type: 'string' }, services: { type: 'string' }, routes: { type: 'string' }, access: { type: 'string' }, ai: { type: 'string' },
     files: { type: 'string' }, logs: { type: 'string' }, dir: { type: 'string' }, 'log-name': { type: 'string' },
     response: { type: 'string' }, daily: { type: 'boolean' }, html: { type: 'boolean' },
-    duplicates: { type: 'string' }, 'dup-window': { type: 'string' },
+    duplicates: { type: 'string' }, reference: { type: 'string' }, 'dup-window': { type: 'string' },
     pages: { type: 'string' }, login: { type: 'boolean' }, headed: { type: 'boolean' }, probe: { type: 'string' }, 'slow-ms': { type: 'string' }, 'error-min': { type: 'string' }, 'error-share': { type: 'string' }, title: { type: 'string' },
   },
   });
@@ -174,6 +176,23 @@ if (cmd0 === 'probe') {
     console.error(`Error: ${String(/** @type {Error} */ (e).message).split('\n')[0].slice(0, 300)}`); // Playwright call logs can contain cookies
     process.exit(1);
   }
+  await exitAfterFlush(0);
+}
+if (cmd0 === 'coverage') {
+  const { coverage, coverageToMarkdown } = await import('../src/coverage.mjs');
+  if (!v.usage || !v.reference) { console.error('Usage: api-dead-ends coverage --usage app-logs.csv --reference ingress.csv [--spec openapi.json] [--out dir]\n  Which endpoints reach the reference source (ingress, load balancer, APM) but are missing from the application logs.'); process.exit(2); }
+  let cspec = null;
+  try { cspec = v.spec ? loadSpec(JSON.parse(await readFile(v.spec, 'utf8'))) : null; } catch (e) { console.error(`Error: ${String(/** @type {Error} */ (e).message).split('\n')[0]}`); process.exit(2); }
+  const ckeep = cspec ? literalSegments(cspec, isIdSegment) : new Set();
+  const c = coverage(parseUsage(await readFile(v.usage, 'utf8'), { keep: ckeep }), parseUsage(await readFile(v.reference, 'utf8'), { keep: ckeep }), cspec);
+  const md = coverageToMarkdown(c);
+  if (v.json) process.stdout.write(JSON.stringify(c, null, 2) + '\n');
+  else if (v.out) {
+    await mkdir(v.out, { recursive: true });
+    await writeFile(join(v.out, 'coverage.md'), md);
+    await writeFile(join(v.out, 'coverage.json'), JSON.stringify(c, null, 2) + '\n');
+    console.error(`not logged: ${c.notLogged.length}, under-logged: ${c.underLogged.length} → ${join(v.out, 'coverage.md')}`);
+  } else process.stdout.write(md);
   await exitAfterFlush(0);
 }
 if (cmd0 === 'detect') { console.log(JSON.stringify(await detectProject(pos[1] || '.'), null, 2)); await exitAfterFlush(0); }

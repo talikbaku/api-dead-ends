@@ -276,3 +276,14 @@ test('duplicates: repeated POSTs from the same client within 2 s, retries after 
   assert.equal(r.status, 0, r.stderr);
   assert.match(readFileSync(join(dir, 'rep/report.md'), 'utf8'), /Repeated non-GET requests/);
 });
+
+test('coverage: endpoints seen by the reference source but missing or under-logged in app logs', () => {
+  const dir = makeRepo();
+  writeFileSync(join(dir, 'ingress.csv'), 'method,path,calls\nGET,/api/products,1000\nGET,/api/cart,500\nGET,/api/products/7,300\nGET,/api/legacy/feed,5\n');
+  writeFileSync(join(dir, 'app.csv'), 'method,path,calls\nGET,/api/products,990\nGET,/api/products/9,100\n');
+  const r = run(dir, ['coverage', '--usage', 'app.csv', '--reference', 'ingress.csv', '--spec', 'services/gateway/openapi.json', '--json']);
+  assert.equal(r.status, 0, r.stderr);
+  const c = JSON.parse(r.stdout);
+  assert.deepEqual(c.notLogged.map((x) => x.path), ['/api/cart']);
+  assert.deepEqual(c.underLogged.map((x) => [x.path, x.checked, x.reference]), [['/api/products/{id}', 100, 300]]);
+});
