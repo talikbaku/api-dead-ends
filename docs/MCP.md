@@ -10,7 +10,7 @@ The numbers never depend on AI. If you want an assistant to help read results an
 - **MCP** (Claude Code, Cursor, VS Code, Windsurf, Claude Desktop): `api-dead-ends mcp` is a stdio server. Read tools: `detect_project`, `setup_plan`, `build_query`, `spec_from_routes`, `analyze_usage`. Write tools: `init` (config + next steps, never overwrites) and `write_report` (report files under `.api-dead-ends/`).
 
   ```json
-  { "mcpServers": { "ade": { "command": "npx", "args": ["-y", "github:talikbaku/api-dead-ends#v0.2.0", "mcp"] } } }
+  { "mcpServers": { "ade": { "command": "npx", "args": ["-y", "api-dead-ends@0.2.0", "mcp"] } } }
   ```
 
   Always pin the version. From a local checkout: `"command": "node", "args": ["/path/to/api-dead-ends/bin/api-dead-ends.mjs", "mcp"]`. The server is called `ade` everywhere (same as in the Claude Code plugin), so tool names match. `spec_from_routes` can write the spec to a file (`out`), and `analyze_usage` also accepts a route list directly (`routes`).
@@ -24,7 +24,7 @@ The numbers never depend on AI. If you want an assistant to help read results an
 
   ```json
   { "manual_call_templates": [{ "name": "api_dead_ends", "call_template_type": "cli",
-      "commands": [{ "command": "npx -y github:talikbaku/api-dead-ends#v0.2.0 utcp" }] }] }
+      "commands": [{ "command": "npx -y api-dead-ends@0.2.0 utcp" }] }] }
   ```
 
   Tools: `detect_project`, `setup_plan`, `build_query`, `spec_from_routes`, `analyze_usage` (same as MCP). Arguments are passed single-quoted; values containing a single quote are not supported. Tested with the UTCP Python client (utcp 1.2.0, utcp-cli 1.1.5): discovery and calls work.

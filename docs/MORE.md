@@ -2,8 +2,6 @@
 
 Everything that does not fit on the front page. Back to [README](../README.md).
 
-> **Not on npm yet.** Until it is, replace `npx api-dead-ends` with `npx github:talikbaku/api-dead-ends` in the commands below.
-
 ## Setup with `init`
 
 ```bash

@@ -3,10 +3,10 @@
 > Local CLI (never changes code) + MCP server + Claude Code plugin. Compares an OpenAPI spec (or a framework route list) with real API traffic aggregated from logs/APM/metrics, and lists: endpoints with server errors (5xx share), client errors (4xx), undocumented (shadow) endpoints, endpoints not called in the window (with confidence), deprecated endpoints still called. Numbers are computed by code, not by an LLM. "Not called" is a hint, never proof that an endpoint is dead.
 
 ## Install
-- CLI: `npx github:talikbaku/api-dead-ends init` (not on npm yet; Node.js >= 20, 22+ recommended, zero dependencies)
+- CLI: `npx api-dead-ends init` (Node.js >= 20, 22+ recommended, zero dependencies)
 - Claude Code: `/plugin marketplace add talikbaku/api-dead-ends` then `/plugin install api-dead-ends@api-dead-ends-marketplace`
-- MCP client: `{"mcpServers":{"ade":{"command":"npx","args":["-y","github:talikbaku/api-dead-ends#v0.2.0","mcp"]}}}`
-- UTCP client: manual from `npx -y github:talikbaku/api-dead-ends#v0.2.0 utcp` (cli call template)
+- MCP client: `{"mcpServers":{"ade":{"command":"npx","args":["-y","api-dead-ends@0.2.0","mcp"]}}}`
+- UTCP client: manual from `npx -y api-dead-ends@0.2.0 utcp` (cli call template)
 
 ## Main commands
 - `init` — scan repo, ask questions, write `.api-dead-ends/NEXT-STEPS.md` (`--yes`, `--json`, `--dry-run`, `--source`, `--service`, `--spec`, `--routes`, `--logs`, `--days`)
