@@ -12,6 +12,7 @@
 - Duplicates: repeated POST/PUT/PATCH/DELETE from one client in access logs (`convert accesslog --duplicates`).
 - Not logged: `coverage` (ingress/APM vs app logs) and `logging-check` (explicit "do not log" settings in code and config).
 - VictoriaLogs source (LogsQL); Nuxt detection.
+- "What changed today" (`--hourly`): today vs the same hours on previous days, first error hour, traffic changes; error texts behind 5xx via traces (`fetch kibana --errors`); `--tz`; spikes compare with the days before; `--include-today`.
 - `fetch kibana`: export through a browser login to Kibana (no ES URL or API key needed).
 - `spec from-next`: Next.js routes from `app/**/route.*` and `pages/api`.
 - MCP write tools `init` and `write_report` (only the config and `.api-dead-ends/`); per-command `--help`.
