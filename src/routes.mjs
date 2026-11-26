@@ -144,3 +144,48 @@ export function routesToOpenApi(routes, opt = {}) {
     paths,
   };
 }
+
+/**
+ * Next.js route inventory from the file tree (no build, no runtime):
+ *   app/**\/route.{js,ts,…}  → methods from `export function GET` / `export const POST = …`
+ *   pages/api/**            → one handler for every method (ANY)
+ * Route groups `(group)`, parallel slots `@slot` and private `_folders` are skipped; `[id]`, `[...slug]`, `[[...slug]]` → `{id}`, `{slug}`.
+ * @param {string} dir  the Next.js project folder (contains app/ or src/app/, pages/ or src/pages/)
+ */
+export async function scanNext(dir) {
+  const { readdir, readFile } = await import('node:fs/promises');
+  const { join } = await import('node:path');
+  /** @type {Array<{ method: string, path: string }>} */
+  const out = [];
+  const seg = (/** @type {string} */ s) => {
+    let m;
+    if ((m = s.match(/^\[\[?(?:\.\.\.)?(\w+)\]?\]$/))) return `{${m[1]}}`;
+    return s;
+  };
+  /** @param {string} base @param {string[]} parts @param {'app'|'pages'} kind */
+  async function walk(base, parts, kind) {
+    let entries = [];
+    try { entries = await readdir(join(base, ...parts), { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      if (e.isDirectory()) {
+        if (e.name === 'node_modules' || e.name.startsWith('.')) continue;
+        await walk(base, [...parts, e.name], kind);
+        continue;
+      }
+      const urlParts = parts.filter((p) => !/^\(.*\)$/.test(p) && !p.startsWith('@') && !p.startsWith('_') && !/^\(\.+\)/.test(p)).map(seg);
+      if (kind === 'app' && /^route\.(js|ts|jsx|tsx|mjs|cjs)$/.test(e.name)) {
+        const text = await readFile(join(base, ...parts, e.name), 'utf8').catch(() => '');
+        const methods = [...text.matchAll(/export\s+(?:async\s+)?(?:function|const|let|var)\s+(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\b/g)].map((m) => m[1]);
+        for (const m of new Set(methods.length ? methods : ['ANY'])) out.push({ method: m, path: '/' + urlParts.join('/') });
+      }
+      if (kind === 'pages' && /\.(js|ts|jsx|tsx|mjs|cjs)$/.test(e.name) && !e.name.startsWith('_')) {
+        const name = e.name.replace(/\.(js|ts|jsx|tsx|mjs|cjs)$/, '');
+        out.push({ method: 'ANY', path: '/api/' + [...urlParts, ...(name === 'index' ? [] : [seg(name)])].join('/') });
+      }
+    }
+  }
+  for (const root of ['app', 'src/app']) await walk(join(dir, root), [], 'app');
+  for (const root of ['pages/api', 'src/pages/api']) await walk(join(dir, root), [], 'pages');
+  // pages/api paths start at /api
+  return dedupe(out.map((r) => ({ method: r.method, path: r.path.replace(/\/+$/, '') || '/' })));
+}

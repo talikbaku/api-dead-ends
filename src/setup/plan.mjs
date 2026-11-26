@@ -29,7 +29,7 @@ const PROM_PRESET = { spring: 'spring', express: 'express', fastapi: 'fastapi', 
 /**
  * How to get a route list or a spec straight from the framework (no code parsing).
  * `spec` = produces OpenAPI JSON; `routes` = route list for `spec from-routes`.
- * @type {Record<string, { kind: 'spec'|'routes'|'planned', how: string }>}
+ * @type {Record<string, { kind: 'spec'|'routes'|'planned'|'scan', how: string }>}
  */
 export const ROUTE_SOURCES = {
   spring: { kind: 'spec', how: 'springdoc: curl -s localhost:8080/v3/api-docs > openapi.json   (or: curl -s localhost:8080/actuator/mappings > routes.json)' },
@@ -53,7 +53,7 @@ export const ROUTE_SOURCES = {
   fastify: { kind: 'spec', how: 'with @fastify/swagger: curl -s localhost:3000/documentation/json > openapi.json' },
   hono: { kind: 'routes', how: 'console.log(JSON.stringify(app.routes)) → routes.json' },
   koa: { kind: 'routes', how: 'print router.stack as "METHOD path" lines → routes.txt' },
-  next: { kind: 'planned', how: 'App Router scan of app/**/route.* is planned; for now list "METHOD /api/…" lines in routes.txt' },
+  next: { kind: 'scan', how: 'spec from-next' },
   aspnetcore: { kind: 'spec', how: 'Swashbuckle: curl -s localhost:5000/swagger/v1/swagger.json > openapi.json' },
   axum: { kind: 'routes', how: 'list routes as "METHOD /path" lines in routes.txt' },
   actix: { kind: 'routes', how: 'list routes as "METHOD /path" lines in routes.txt' },
@@ -116,12 +116,18 @@ export function buildSteps(c) {
     }
     if (!spec) {
       const fw = s.frameworks.map((f) => ROUTE_SOURCES[f]).find(Boolean);
+      if (fw && fw.kind === 'scan') {
+        steps.push({ title: 'Build a spec from the Next.js route files', cmd: `${ade} spec from-next ${q(s.dir)} --title ${q(s.name)} -o ${dir}/routes.openapi.json` });
+        spec = `${dir}/routes.openapi.json`;
+      }
+      if (!spec) {
       const how = fw ? fw.how.replace(/> openapi\.json/g, `> ${dir}/openapi.json`) : '';
       const fromRoutes = `${ade} spec from-routes ${dir}/routes.txt --title ${q(s.name)} -o ${dir}/routes.openapi.json`;
       steps.push({ title: 'Get the list of endpoints', note: fw && fw.kind === 'spec'
         ? how
         : `${fw ? fw.how.replace(/routes\.(txt|json)/, `${dir}/routes.txt`) : `Export your OpenAPI JSON to ${dir}/openapi.json, or write ${dir}/routes.txt with "METHOD /path" lines`}\n  then: ${fromRoutes}` });
       spec = fw && fw.kind === 'spec' ? `${dir}/openapi.json` : `${dir}/routes.openapi.json`;
+      }
     }
     const specFlag = ` --spec ${q(spec)}`;
     const t = c.source.type;

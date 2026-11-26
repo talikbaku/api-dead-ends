@@ -297,3 +297,20 @@ test('logging-check: finds explicit "do not log" settings with file and line', (
   const j = JSON.parse(r.stdout);
   assert.deepEqual(j.findings.map((f) => [f.file, f.line, f.rule]).sort(), [['nginx.conf', 3, 'nginx-access-log-off'], ['services/gateway/app.js', 2, 'morgan-skip']]);
 });
+
+test('spec from-next: App Router route files and pages/api become an OpenAPI spec', async () => {
+  const { mkdirSync } = await import('node:fs');
+  const dir = makeRepo();
+  const w = (p, body) => { mkdirSync(join(dir, 'web', p, '..'), { recursive: true }); writeFileSync(join(dir, 'web', p), body); };
+  w('app/api/products/[id]/route.ts', 'export async function GET(req) {}\nexport const DELETE = async () => {};\n');
+  w('app/(shop)/api/cart/route.js', 'export function POST() {}\n');
+  w('app/api/docs/[[...slug]]/route.ts', 'export function GET() {}\n');
+  w('src/pages/api/hello.ts', 'export default function handler(req, res) {}\n');
+  w('app/page.tsx', 'export default function Page() {}\n');
+  const r = run(dir, ['spec', 'from-next', 'web', '-o', 'next.json']);
+  assert.equal(r.status, 0, r.stderr);
+  const paths = JSON.parse(readFileSync(join(dir, 'next.json'), 'utf8')).paths;
+  assert.deepEqual(Object.keys(paths).sort(), ['/api/cart', '/api/docs/{slug}', '/api/hello', '/api/products/{id}']);
+  assert.ok(paths['/api/products/{id}'].get && paths['/api/products/{id}'].delete);
+  assert.ok(paths['/api/hello']['x-ade-any-method']);
+});

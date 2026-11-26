@@ -27,7 +27,7 @@ Start here:
       --json                         print the plan as JSON (for scripts and AI agents)
       --source S --services a,b --spec F --routes F --days N --index P --access paste|api-key --ai off|prompt|mcp --force
   api-dead-ends detect [dir]         Print what the scan found (JSON).
-  api-dead-ends spec from-routes <routes.txt|json> [-o openapi.json]
+  api-dead-ends spec from-routes <routes.txt|json> [-o openapi.json]   ·   spec from-next <dir>  (Next.js app/ and pages/api)
                                      No OpenAPI? Build one from your framework's route list (rails routes, flask routes,
                                      Spring /actuator/mappings, Gin debug, Laravel route:list --json, "METHOD /path" lines).
   api-dead-ends probe <url> [--pages 20] [--login] [--spec F] [--out dir]
@@ -213,8 +213,8 @@ if (cmd0 === 'logging-check') {
 }
 if (cmd0 === 'detect') { console.log(JSON.stringify(await detectProject(pos[1] || '.'), null, 2)); await exitAfterFlush(0); }
 if (cmd0 === 'spec') {
-  if (pos[1] !== 'from-routes' || !pos[2]) { console.error('Usage: api-dead-ends spec from-routes <routes.txt|routes.json> [-o openapi.json]'); process.exit(2); }
-  const routes = parseRoutes(await readFile(pos[2], 'utf8'));
+  if (!['from-routes', 'from-next'].includes(pos[1]) || !pos[2]) { console.error('Usage: api-dead-ends spec from-routes <routes.txt|routes.json> [-o openapi.json]\n       api-dead-ends spec from-next <next.js project dir> [-o openapi.json]'); process.exit(2); }
+  const routes = pos[1] === 'from-next' ? await (await import('../src/routes.mjs')).scanNext(pos[2]) : parseRoutes(await readFile(pos[2], 'utf8'));
   if (!routes.length) { console.error('No routes recognised. Expected lines like "GET /users/:id" or a framework route dump.'); process.exit(2); }
   const doc = JSON.stringify(routesToOpenApi(routes, { title: v.title }), null, 2) + '\n';
   if (v.out) { await mkdir(join(v.out, '..'), { recursive: true }); await writeFile(v.out, doc); console.error(`${routes.length} routes → ${v.out}`); } else process.stdout.write(doc);
