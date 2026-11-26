@@ -3,7 +3,7 @@
 ## Summary
 
 - **2 endpoints with server errors** (5xx ≥ 1% of calls and ≥ 10 responses) — **and 1,624 more 5xx on 3 endpoints below that threshold**.
-- **2 recent spikes**: 5xx over the threshold in the last days, hidden by the period average.
+- **2 recent spikes**: 5xx over the threshold in the last days and ≥ 3× the days before.
 - **1 endpoint with many client errors** (4xx other than 401/404 ≥ 10%).
 - **3 undocumented endpoints** called (not in the spec).
 - **3 endpoints not called** in 30 days, 2 rare, 2 deprecated but still called. Confidence: **low**.
@@ -13,12 +13,12 @@
 
 ## Recent spikes
 
-Over the threshold in a recent window, hidden by the average of the whole period. Look at what changed.
+Over the threshold in a recent window and at least 3× the 5xx share of the days before it. Look at what changed.
 
-| Method | Path | Window | 5xx | Share | Whole period |
+| Method | Path | Window | 5xx | Share | Days before |
 |---|---|---|---:|---:|---|
-| GET | `/products/search` | last 3 days | 937 | 4.30% | 0.49% |
-| POST | `/payments` | last 3 days | 189 | 2.57% | 0.28% |
+| GET | `/products/search` | last 3 days | 937 | 4.30% | 0.08% |
+| POST | `/payments` | last 1 day | 65 | 2.43% | 0.20% |
 
 ## Server errors
 

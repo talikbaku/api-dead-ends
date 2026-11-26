@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- `report.html` accessibility: WAI-ARIA tabs with arrow keys, Home and End; Overview tiles and "Look at first" rows are keyboard buttons; focus kept after redraws; visible focus outline; table captions and header scope; text alternative for sparklines; `aria-pressed` on the time window; text colours raised to WCAG AA 4.5:1 in light and dark mode (checked with axe-core: 0 violations). See ACCESSIBILITY.md.
+- GitHub community files: code of conduct, contributing, issue and PR templates, accessibility statement.
+
 ## 0.2.0 — 2026-11-26
 
 - `init`: step-by-step setup wizard (interactive, `--yes`, `--json`, `--dry-run`); scans polyglot repos per service.

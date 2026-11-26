@@ -54,9 +54,11 @@ export function toHtml(r, extra = {}) {
 </head>
 <body>
 <div class="wrap">
-<header><div><h1 id="title"></h1><div class="sub" id="sub"></div></div><div class="seg" id="seg"></div></header>
-<nav id="tabs"></nav>
-<main id="main"></main>
+<header><div><h1 id="title"></h1><div class="sub" id="sub" aria-live="polite"></div></div><div class="seg" id="seg" role="group" aria-label="Time window"></div></header>
+<main>
+<div class="tabs" id="tabs" role="tablist" aria-label="Report sections"></div>
+<div id="main" role="tabpanel" tabindex="0"></div>
+</main>
 <footer id="foot"></footer>
 </div>
 <script id="data" type="application/json">${json}</script>
@@ -66,15 +68,15 @@ export function toHtml(r, extra = {}) {
 `;
 }
 
-const CSS = `:root{--bg:#f6f7f9;--panel:#fff;--ink:#151b23;--muted:#5d6876;--faint:#8b95a1;--line:#e3e7ec;--hover:#f0f3f6;--acc:#2563eb;--acc-s:#e6eeff;--bad:#d4342c;--bad-s:#fde8e6;--warn:#b86e00;--warn-s:#fff1d6;--good:#178a4c;--good-s:#e1f5e9;--gray-s:#eef0f3}
-@media (prefers-color-scheme:dark){:root{--bg:#0d1117;--panel:#151b23;--ink:#e6edf3;--muted:#9aa6b2;--faint:#6e7b88;--line:#262f3a;--hover:#1b2330;--acc:#6ea0ff;--acc-s:#16264a;--bad:#ff7b72;--bad-s:#3b1716;--warn:#f0b44c;--warn-s:#3a2a0c;--good:#4fd08a;--good-s:#0f3221;--gray-s:#1e2631}}
+const CSS = `:root{--bg:#f6f7f9;--panel:#fff;--ink:#151b23;--muted:#5d6876;--faint:#66707c;--line:#e3e7ec;--hover:#f0f3f6;--acc:#2563eb;--acc-s:#e6eeff;--bad:#c0281f;--bad-s:#fde8e6;--warn:#965a00;--warn-s:#fff1d6;--good:#178a4c;--good-s:#e1f5e9;--gray-s:#eef0f3}
+@media (prefers-color-scheme:dark){:root{--bg:#0d1117;--panel:#151b23;--ink:#e6edf3;--muted:#9aa6b2;--faint:#8794a1;--line:#262f3a;--hover:#1b2330;--acc:#6ea0ff;--acc-s:#16264a;--bad:#ff7b72;--bad-s:#3b1716;--warn:#f0b44c;--warn-s:#3a2a0c;--good:#4fd08a;--good-s:#0f3221;--gray-s:#1e2631}}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
 .wrap{max-width:1200px;margin:0 auto;padding:18px 16px 40px}header{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;margin-bottom:12px}
 h1{font-size:19px;margin:0}.sub{color:var(--muted);font-size:12.5px}.seg{display:flex;background:var(--gray-s);border-radius:9px;padding:3px}
 .seg button{border:0;background:none;color:var(--muted);padding:6px 11px;border-radius:7px;font:inherit;font-size:13px;cursor:pointer}.seg button.on{background:var(--panel);color:var(--ink);font-weight:600}
-nav{display:flex;gap:2px;border-bottom:1px solid var(--line);margin-bottom:14px;overflow-x:auto}nav button{border:0;background:none;font:inherit;color:var(--muted);padding:9px 11px;cursor:pointer;border-bottom:2px solid transparent;white-space:nowrap}
-nav button.on{color:var(--ink);border-color:var(--ink);font-weight:600}.cnt{font-size:11px;padding:1px 6px;border-radius:999px;background:var(--gray-s);margin-left:5px}.cnt.bad{background:var(--bad-s);color:var(--bad)}.cnt.warn{background:var(--warn-s);color:var(--warn)}
-.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px}.tile{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:11px 13px;cursor:pointer}
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);margin-bottom:14px;overflow-x:auto}.tabs button{border:0;background:none;font:inherit;color:var(--muted);padding:9px 11px;cursor:pointer;border-bottom:2px solid transparent;white-space:nowrap}
+.tabs button.on{color:var(--ink);border-color:var(--ink);font-weight:600}.cnt{font-size:11px;padding:1px 6px;border-radius:999px;background:var(--gray-s);margin-left:5px}.cnt.bad{background:var(--bad-s);color:var(--bad)}.cnt.warn{background:var(--warn-s);color:var(--warn)}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px}.tile{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:11px 13px;cursor:pointer;font:inherit;color:inherit;text-align:left;width:100%}
 .tile .k{font-size:12px;color:var(--muted)}.tile .v{font-size:23px;font-weight:650}.tile.bad .v{color:var(--bad)}.tile.warn .v{color:var(--warn)}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;margin-bottom:14px;overflow:auto}.card h2{font-size:14px;margin:0;padding:11px 13px;border-bottom:1px solid var(--line)}
 .desc{padding:9px 13px;color:var(--muted);font-size:13px;border-bottom:1px solid var(--line)}table{width:100%;border-collapse:collapse}
@@ -82,7 +84,9 @@ th{font-size:11.5px;text-transform:uppercase;letter-spacing:.03em;color:var(--fa
 td{padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:middle}tr:last-child td{border-bottom:0}td.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
 .ep{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12.5px;word-break:break-all}.m{font-size:11px;font-weight:700;color:var(--muted);white-space:nowrap}
 .badge{font-size:11.5px;padding:2px 7px;border-radius:6px;white-space:nowrap}.b-bad{background:var(--bad-s);color:var(--bad)}.b-warn{background:var(--warn-s);color:var(--warn)}.b-gray{background:var(--gray-s);color:var(--muted)}
-.empty{padding:14px 13px;color:var(--muted)}.small{font-size:12px;color:var(--muted)}footer{color:var(--faint);font-size:12px;margin-top:20px}svg{display:block}`;
+.empty{padding:14px 13px;color:var(--muted)}.small{font-size:12px;color:var(--muted)}footer{color:var(--faint);font-size:12px;margin-top:20px}svg{display:block}
+:focus-visible{outline:2px solid var(--acc);outline-offset:2px;border-radius:4px}.lnk{border:0;background:none;padding:0;font:inherit;font-size:12px;color:var(--acc);cursor:pointer;text-align:left;text-decoration:underline}
+.sr{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}`;
 
 // The page script: builds the DOM with textContent only (paths come from logs).
 const JS = `(() => {
@@ -101,6 +105,7 @@ function spark(key, field, color) {
   const arr = s[field], max = Math.max(1, ...arr), w = 110, h = 24, bw = w / arr.length;
   const lens = st.win === 'all' ? arr.length : Number(st.win);
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); svg.setAttribute('width', w); svg.setAttribute('height', h);
+  svg.setAttribute('role', 'img'); svg.setAttribute('aria-label', (field === 'e5' ? '5xx' : S.calls) + ' ' + S.perDay.toLowerCase() + ': ' + arr.map((v, i) => (D.days[i] || '').slice(5) + ' ' + fmt(v)).join(', '));
   arr.forEach((v, i) => { if (!v) return; const r = document.createElementNS('http://www.w3.org/2000/svg', 'rect'); const bh = Math.max(1.5, v / max * (h - 2));
     r.setAttribute('x', (i * bw).toFixed(1)); r.setAttribute('y', (h - bh).toFixed(1)); r.setAttribute('width', Math.max(1, bw - 1).toFixed(1)); r.setAttribute('height', bh.toFixed(1));
     r.setAttribute('fill', color); r.setAttribute('opacity', i >= arr.length - lens ? '1' : '0.3'); svg.append(r); });
@@ -109,9 +114,9 @@ function spark(key, field, color) {
 const epCell = (m, p) => el('td', {}, el('span', { class: 'm' }, m), ' ', el('span', { class: 'ep' }, p));
 function table(head, rows) {
   if (!rows.length) return el('div', { class: 'empty' }, S.none);
-  return el('table', {}, el('thead', {}, el('tr', {}, head.map((h) => el('th', {}, h)))), el('tbody', {}, rows));
+  return el('table', {}, el('thead', {}, el('tr', {}, head.map((h) => el('th', { scope: 'col' }, h)))), el('tbody', {}, rows));
 }
-const card = (title, desc, body) => el('div', { class: 'card' }, el('h2', {}, title), desc ? el('div', { class: 'desc' }, desc) : null, body);
+const card = (title, desc, body) => { if (body && body.tagName === 'TABLE') body.prepend(el('caption', { class: 'sr' }, title)); return el('div', { class: 'card' }, el('h2', {}, title), desc ? el('div', { class: 'desc' }, desc) : null, body); };
 function lists() {
   const w = W(), E = w.endpoints;
   const e5 = E.filter((e) => e.e5 > 0).sort((a, b) => b.e5 - a.e5);
@@ -146,13 +151,13 @@ function view(l) {
   if (st.tab === 'errorTexts' && D.errors && Array.isArray(D.errors.endpoints)) return [el('div', { class: 'desc' }, D.errors.note || ''), ...D.errors.endpoints.map((e) => card(e.method + ' ' + e.path + ' — ' + fmt(e.errors5xx) + ' × 5xx', null, table(['Error', 'Records', 'First seen', 'Example trace'], (e.messages || []).map((m) => el('tr', {}, el('td', { class: 'ep' }, m.text), el('td', { class: 'n' }, fmt(m.count)), el('td', { class: 'small' }, String(m.firstSeen || '').slice(0, 19).replace('T', ' ')), el('td', { class: 'ep' }, m.trace || ''))))))];
   const w = l.w, t = w.totals;
   if (st.tab === 'overview') {
-    const tile = (k, v, c, go) => el('div', { class: 'tile ' + c, onclick: () => { st.tab = go; render(); } }, el('div', { class: 'k' }, k), el('div', { class: 'v' }, v));
+    const tile = (k, v, c, go) => el('button', { type: 'button', class: 'tile ' + c, onclick: () => { st.tab = go; render('tab'); } }, el('span', { class: 'k', style: 'display:block' }, k), el('span', { class: 'v', style: 'display:block' }, v));
     return [el('div', { class: 'tiles' },
       tile(S.requests, fmt(t.requests), '', 'used'), tile(S.e5, String(l.over.length) + (l.e5.length > l.over.length ? ' (+' + (l.e5.length - l.over.length) + ')' : ''), l.over.length ? 'bad' : '', 'e5'),
       D.spikes.length ? tile(S.spikes, String(D.spikes.length), 'bad', 'spikes') : null,
       tile(S.e4, String(w.clientErrors.length), w.clientErrors.length ? 'warn' : '', 'e4'), tile(S.shadow, String(t.shadow), t.shadow ? 'warn' : '', 'shadow'),
       tile(S.notSeen, String(t.not_seen), '', 'notSeen'), tile(S.dep, String(t.deprecated_in_use), '', 'dep')),
-      card('Look at first', null, table([S.path, 'Why'], top(l).map(([m, p, why, go]) => el('tr', { style: 'cursor:pointer', onclick: () => { st.tab = go; render(); } }, epCell(m, p), el('td', { class: 'small' }, why))))),
+      card('Look at first', null, table([S.path, 'Why'], top(l).map(([m, p, why, go]) => el('tr', { style: 'cursor:pointer', onclick: (ev) => { if (ev.target.closest('button')) return; st.tab = go; render('tab'); } }, epCell(m, p), el('td', { class: 'small' }, el('button', { type: 'button', class: 'lnk', onclick: () => { st.tab = go; render('tab'); } }, why)))))),
       card(S.notSeen, S.notVerdict, el('div', { class: 'desc' }, S.confidence + ': ' + w.window.confidence + ' · ' + S.window + ': ' + (w.window.days ?? '?') + ' ' + S.days + ' · ' + S.operations + ': ' + t.operations))];
   }
   if (st.tab === 'spikes') return card(S.spikes, S.spikeNote, table([S.path, S.window, '5xx', S.share, 'Days before'], D.spikes.map((x) => el('tr', {}, epCell(x.method, x.path), el('td', {}, x.window + ' ' + (x.window === 1 ? S.day : S.days)), el('td', { class: 'n' }, fmt(x.errors5xx)), el('td', { class: 'n' }, pct(x.errors5xx, x.calls)), el('td', { class: 'n' }, (x.wholeShare * 100).toFixed(2) + '%')))));
@@ -170,14 +175,24 @@ function view(l) {
   if (st.tab === 'probe' && D.probe) return card(S.probe, D.probe.note, table(['Page', S.path, 'Status', 'ms', 'Per load', S.note], D.probe.rows.map((x) => el('tr', {}, el('td', { class: 'ep' }, x.page), epCell(x.method, x.path), el('td', {}, el('span', { class: 'badge ' + (x.status >= 400 || !x.status ? 'b-bad' : 'b-gray') }, x.status || 'failed')), el('td', { class: 'n' }, x.ms == null ? '—' : fmt(x.ms)), el('td', { class: 'n' }, x.perLoad > 1 ? el('b', {}, '×' + x.perLoad) : String(x.perLoad)), el('td', { class: 'small' }, x.problem || '')))));
   return card(S.used, null, table([S.path, S.calls, '5xx', S.perDay, S.statuses], l.E.filter((e) => e.c === 'used').sort((a, b) => b.n - a.n).map((e) => el('tr', {}, epCell(e.m, e.p), el('td', { class: 'n' }, fmt(e.n)), el('td', { class: 'n' }, fmt(e.e5)), el('td', {}, spark(e.m + ' ' + e.p, 'calls', 'var(--acc)')), el('td', { class: 'small' }, stTxt(e.st))))));
 }
-function render() {
+function render(focus) {
   const l = lists();
   document.getElementById('title').textContent = D.api.title + (D.api.version ? ' · v' + D.api.version : '');
+  document.title = D.api.title + ' — API report';
   document.getElementById('sub').textContent = (W().window.from || '').slice(0, 10) + ' – ' + (W().window.to || '').slice(0, 10) + ' · ' + fmt(W().totals.requests) + ' ' + S.requests.toLowerCase();
-  const seg = document.getElementById('seg'); seg.replaceChildren(...(keys.length > 1 ? keys.map((k) => el('button', { class: st.win === k ? 'on' : '', onclick: () => { st.win = k; render(); } }, k === 'all' ? S.all : k + ' ' + (k === '1' ? S.day : S.days))) : []));
-  const tabs = document.getElementById('tabs'); tabs.replaceChildren(...TABS.map(([k, f]) => { const c = f(l); if (c === null && k !== 'overview') return null; return el('button', { class: st.tab === k ? 'on' : '', onclick: () => { st.tab = k; render(); } }, S[k], c ? el('span', { class: 'cnt ' + c[1] }, c[0]) : null); }).filter(Boolean));
-  document.getElementById('main').replaceChildren(...[view(l)].flat().filter(Boolean));
+  const seg = document.getElementById('seg'); seg.replaceChildren(...(keys.length > 1 ? keys.map((k) => el('button', { type: 'button', class: st.win === k ? 'on' : '', 'aria-pressed': String(st.win === k), 'data-k': k, onclick: () => { st.win = k; render('win'); } }, k === 'all' ? S.all : k + ' ' + (k === '1' ? S.day : S.days))) : []));
+  const tabs = document.getElementById('tabs'); tabs.replaceChildren(...TABS.map(([k, f]) => { const c = f(l); if (c === null && k !== 'overview') return null; const on = st.tab === k; return el('button', { type: 'button', role: 'tab', id: 'tab-' + k, 'aria-selected': String(on), 'aria-controls': 'main', tabindex: on ? '0' : '-1', class: on ? 'on' : '', onclick: () => { st.tab = k; render('tab'); } }, S[k], c ? el('span', { class: 'cnt ' + c[1] }, c[0]) : null); }).filter(Boolean));
+  const main = document.getElementById('main'); main.setAttribute('aria-labelledby', 'tab-' + st.tab);
+  main.replaceChildren(...[view(l)].flat().filter(Boolean));
+  if (focus === 'tab') document.getElementById('tab-' + st.tab)?.focus();
+  if (focus === 'win') seg.querySelector('[data-k="' + st.win + '"]')?.focus();
   document.getElementById('foot').textContent = S.generated + (D.tool ? ' ' + D.tool : '') + '. ' + S.notVerdict;
 }
+// Tabs: arrow keys, Home and End move between them (WAI-ARIA tabs pattern, automatic activation)
+document.getElementById('tabs').addEventListener('keydown', (ev) => {
+  const bs = [...document.querySelectorAll('#tabs [role=tab]')], i = bs.findIndex((b) => b.id === 'tab-' + st.tab);
+  const j = ev.key === 'ArrowRight' ? (i + 1) % bs.length : ev.key === 'ArrowLeft' ? (i - 1 + bs.length) % bs.length : ev.key === 'Home' ? 0 : ev.key === 'End' ? bs.length - 1 : -1;
+  if (j < 0) return; ev.preventDefault(); st.tab = bs[j].id.slice(4); render('tab');
+});
 render();
 })();`;

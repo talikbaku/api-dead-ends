@@ -36,7 +36,7 @@ Short docs: https://github.com/talikbaku/api-dead-ends/blob/main/llms.txt
 | ! | **Undocumented (shadow)** — called in production, missing from the spec | `GET /api/v1/products/{id}/reviews` — 34,507 calls |
 | ○ | **Not called** in the window — with the window length and a confidence level | `POST /orders/{id}/repeat` — 0 calls in 30 days |
 | ↓ | **Deprecated but still called** | `GET /legacy/catalog` — 6,826 calls |
-| ▲ | **Recent spikes** — over the 5xx threshold in the last 7/3/1 days, hidden by the period average | `POST /payments` — 2.6% 5xx in 3 days vs 0.3% in 30 |
+| ▲ | **Recent spikes** — over the 5xx threshold in the last 7/3/1 days and ≥ 3× the days before, hidden by the period average | `POST /payments` — 2.4% 5xx in the last day vs 0.2% before |
 | ⧉ | **Duplicates** — the same request several times per page load (`probe`), repeated POST/PATCH from one client (access logs) | `GET /api/me` ×3 on `/` |
 | ∅ | **Not logged** — endpoints the ingress/APM sees but app logs miss (`coverage`), and "do not log" settings in code (`logging-check`) | `location /health { access_log off; }` |
 
@@ -114,7 +114,7 @@ From the synthetic demo in [`examples/`](examples/) — [full report](examples/r
 ```text
 ## Summary
 - 2 endpoints with server errors (5xx ≥ 1% of calls and ≥ 10 responses) — and 1,624 more 5xx on 3 endpoints below that threshold.
-- 2 recent spikes: 5xx over the threshold in the last days, hidden by the period average.
+- 2 recent spikes: 5xx over the threshold in the last days and ≥ 3× the days before.
 - 1 endpoint with many client errors (4xx other than 401/404 ≥ 10%).
 - 3 undocumented endpoints called (not in the spec).
 - 3 endpoints not called in 30 days, 2 rare, 2 deprecated but still called. Confidence: low.
