@@ -6,7 +6,7 @@
 
 import { createInterface } from 'node:readline';
 import { readFile, writeFile, mkdir, realpath, lstat } from 'node:fs/promises';
-import { resolve, dirname, relative, isAbsolute, basename } from 'node:path';
+import { resolve, dirname, relative, isAbsolute, basename, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { detectProject } from './setup/detect.mjs';
 import { SOURCES, ROUTE_SOURCES, recommendSource, promPreset, buildSteps, safeName } from './setup/plan.mjs';
@@ -53,6 +53,8 @@ const TOOLS = [
     inputSchema: { type: 'object', required: ['source'], properties: {
       source: { type: 'string', enum: SOURCES.map((s) => s.id) }, services: str('Comma-separated service names or dirs (default: all)'),
       days: { type: 'number' }, index: str('Elasticsearch index pattern'),
+      access: { type: 'string', enum: ['paste', 'api-key', 'kibana'], description: 'Elasticsearch: paste a query (default), read-only API key, or Kibana browser login' },
+      url: str('Elasticsearch URL (api-key) or Kibana Discover URL (kibana)'),
     } },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   },
@@ -225,18 +227,19 @@ async function callTool(name, a = {}) {
   if (name === 'init') {
     const out = new PassThrough(), err = new PassThrough();
     let text = ''; out.on('data', (d) => { text += d; }); err.resume();
-    const code = await runInit({ cwd, flags: { yes: true, json: true, source: a.source, services: a.services, days: a.days, index: a.index }, input: new PassThrough(), out, err });
+    const code = await runInit({ cwd, flags: { yes: true, json: true, source: a.source, services: a.services, days: a.days, index: a.index, access: a.access, url: a.url }, input: new PassThrough(), out, err });
     if (code !== 0) throw new Error('init failed');
     const plan = JSON.parse(text);
     return { written: plan.files, steps: plan.steps };
   }
   if (name === 'write_report') {
     const target = await inside(cwd, a.out);
+    if (sep === '/' && String(a.out).includes('\\')) throw new Error('out must not contain backslashes');
     const rel = relative(await realpath(cwd), target);
-    if (!(rel === '.api-dead-ends' || rel.startsWith('.api-dead-ends/') || rel.startsWith('.api-dead-ends\\'))) throw new Error('out must be a folder under .api-dead-ends/');
+    if (rel.split(sep)[0] !== '.api-dead-ends') throw new Error('out must be a folder under .api-dead-ends/');
     const { spec, rows, dailyRows } = await loadInputs(cwd, a);
-    const r = classify(rows, spec, { days: a.days });
-    const win = dailyRows.some((x) => x.day) ? computeWindows(dailyRows, spec, { days: a.days }) : null;
+    const win = dailyRows.some((x) => x.day) ? computeWindows(dailyRows, spec, {}) : null;
+    const r = win ? win.windows.all : classify(rows, spec, { days: a.days });
     const extra = { spikes: win?.spikes || [], toolVersion: INFO.version };
     await mkdir(target, { recursive: true });
     const real = await inside(cwd, a.out); // re-check after mkdir; write into the resolved folder

@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.2.0 — unreleased
+## 0.2.0 — 2026-11-25
 
 - `init`: step-by-step setup wizard (interactive, `--yes`, `--json`, `--dry-run`); scans polyglot repos per service.
 - `spec from-routes`: OpenAPI from framework route lists (Rails, Flask, Django, Spring, Gin, Echo, Fiber, Laravel, Express, Next.js `[id]`).

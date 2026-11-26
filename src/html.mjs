@@ -4,7 +4,7 @@
 
 const STR = {
   overview: 'Overview', e5: 'Server errors', e4: 'Client errors', shadow: 'Undocumented', notSeen: 'Not called', dep: 'Deprecated in use',
-  spikes: 'Recent spikes', dup: 'Duplicates', probe: 'Front-end probe', used: 'All used',
+  spikes: 'Recent spikes', dup: 'Duplicates', probe: 'Front-end probe', used: 'All used', rare: 'Rare',
   window: 'Window', all: 'Whole period', days: 'days', day: 'day',
   method: 'Method', path: 'Path', calls: 'Calls', share: 'Share', statuses: 'Statuses', lastSeen: 'Last seen', perDay: 'Per day', note: 'Note',
   notVerdict: '"Not called" is a hint, not a verdict: rare callers (monthly jobs, partners, old app versions) and endpoints that do not log are invisible.',
@@ -111,11 +111,12 @@ const card = (title, desc, body) => el('div', { class: 'card' }, el('h2', {}, ti
 function lists() {
   const w = W(), E = w.endpoints;
   const e5 = E.filter((e) => e.e5 > 0).sort((a, b) => b.e5 - a.e5);
-  return { w, E, e5, notSeen: E.filter((e) => e.c === 'not_seen'), dep: E.filter((e) => e.c === 'deprecated_in_use') };
+  const over = new Set(w.serverErrors.map((e) => e.m + ' ' + e.p));
+  return { w, E, e5, over: e5.filter((e) => over.has(e.m + ' ' + e.p)), notSeen: E.filter((e) => e.c === 'not_seen'), dep: E.filter((e) => e.c === 'deprecated_in_use'), rare: E.filter((e) => e.c === 'rare') };
 }
 const TABS = [
-  ['overview', () => null], ['spikes', () => D.spikes.length ? [D.spikes.length, 'bad'] : null], ['e5', (l) => [l.e5.length, l.e5.length ? 'bad' : '']], ['e4', (l) => [l.w.clientErrors.length, l.w.clientErrors.length ? 'warn' : '']],
-  ['shadow', (l) => [l.w.shadow.length, l.w.shadow.length ? 'warn' : '']], ['notSeen', (l) => [l.notSeen.length, '']], ['dep', (l) => [l.dep.length, '']],
+  ['overview', () => null], ['spikes', () => D.spikes.length ? [D.spikes.length, 'bad'] : null], ['e5', (l) => [l.over.length, l.over.length ? 'bad' : '']], ['e4', (l) => [l.w.clientErrors.length, l.w.clientErrors.length ? 'warn' : '']],
+  ['shadow', (l) => [l.w.shadow.length, l.w.shadow.length ? 'warn' : '']], ['notSeen', (l) => [l.notSeen.length, '']], ['dep', (l) => [l.dep.length, '']], ['rare', (l) => l.rare.length ? [l.rare.length, ''] : null],
   ['dup', () => D.duplicates ? [D.duplicates.rows.length, 'warn'] : null], ['probe', () => D.probe ? [D.probe.rows.filter((x) => x.problem).length, 'bad'] : null], ['used', (l) => [l.E.filter((e) => e.c === 'used').length, '']],
 ];
 function top(l) {
@@ -132,7 +133,7 @@ function view(l) {
   if (st.tab === 'overview') {
     const tile = (k, v, c, go) => el('div', { class: 'tile ' + c, onclick: () => { st.tab = go; render(); } }, el('div', { class: 'k' }, k), el('div', { class: 'v' }, v));
     return [el('div', { class: 'tiles' },
-      tile(S.requests, fmt(t.requests), '', 'used'), tile(S.e5, String(l.e5.length), l.e5.length ? 'bad' : '', 'e5'),
+      tile(S.requests, fmt(t.requests), '', 'used'), tile(S.e5, String(l.over.length) + (l.e5.length > l.over.length ? ' (+' + (l.e5.length - l.over.length) + ')' : ''), l.over.length ? 'bad' : '', 'e5'),
       D.spikes.length ? tile(S.spikes, String(D.spikes.length), 'bad', 'spikes') : null,
       tile(S.e4, String(w.clientErrors.length), w.clientErrors.length ? 'warn' : '', 'e4'), tile(S.shadow, String(t.shadow), t.shadow ? 'warn' : '', 'shadow'),
       tile(S.notSeen, String(t.not_seen), '', 'notSeen'), tile(S.dep, String(t.deprecated_in_use), '', 'dep')),
@@ -148,6 +149,7 @@ function view(l) {
       el('td', { class: 'small' }, stTxt(e.st)))))),
     w.ambiguous.length ? card(S.wordOnParam, 'A word landed on a spec parameter and was counted into that operation.', table([S.path, 'Counted as', S.calls], w.ambiguous.map((a) => el('tr', {}, epCell(a.m, a.p), el('td', { class: 'ep' }, a.to), el('td', { class: 'n' }, fmt(a.n)))))) : null];
   if (st.tab === 'notSeen') return card(S.notSeen, S.notVerdict, table([S.path, S.perDay, S.note], l.notSeen.map((e) => el('tr', {}, epCell(e.m, e.p), el('td', {}, spark(e.m + ' ' + e.p, 'calls', 'var(--acc)')), el('td', { class: 'small' }, e.ph ? S.periodic : '')))));
+  if (st.tab === 'rare') return card(S.rare, 'Fewer than ' + w.thresholds.rare + ' calls in this window.', table([S.path, S.calls, S.lastSeen, S.perDay], l.rare.map((e) => el('tr', {}, epCell(e.m, e.p), el('td', { class: 'n' }, fmt(e.n)), el('td', { class: 'small' }, (e.ls || '').slice(0, 10)), el('td', {}, spark(e.m + ' ' + e.p, 'calls', 'var(--acc)'))))));
   if (st.tab === 'dep') return card(S.dep, null, table([S.path, S.calls, S.lastSeen, S.perDay], l.dep.map((e) => el('tr', {}, epCell(e.m, e.p), el('td', { class: 'n' }, fmt(e.n)), el('td', { class: 'small' }, (e.ls || '').slice(0, 10)), el('td', {}, spark(e.m + ' ' + e.p, 'calls', 'var(--acc)'))))));
   if (st.tab === 'dup' && D.duplicates) return card(S.dup, D.duplicates.note, table([S.path, 'Repeats', S.share, 'Within', S.note], D.duplicates.rows.map((d) => el('tr', {}, epCell(d.method, d.path), el('td', { class: 'n' }, fmt(d.repeats)), el('td', { class: 'n' }, pct(d.repeats, d.calls)), el('td', { class: 'n' }, d.withinSeconds + ' s'), el('td', { class: 'small' }, d.note || '')))));
   if (st.tab === 'probe' && D.probe) return card(S.probe, D.probe.note, table(['Page', S.path, 'Status', 'ms', 'Per load', S.note], D.probe.rows.map((x) => el('tr', {}, el('td', { class: 'ep' }, x.page), epCell(x.method, x.path), el('td', {}, el('span', { class: 'badge ' + (x.status >= 400 || !x.status ? 'b-bad' : 'b-gray') }, x.status || 'failed')), el('td', { class: 'n' }, x.ms == null ? '—' : fmt(x.ms)), el('td', { class: 'n' }, x.perLoad > 1 ? el('b', {}, '×' + x.perLoad) : String(x.perLoad)), el('td', { class: 'small' }, x.problem || '')))));

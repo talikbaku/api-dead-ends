@@ -163,7 +163,8 @@ export function splitJson(text) {
 export async function collect(search, o) {
   const H = 3600e3;
   const now = o.now ?? Date.now();
-  const win = (o.windowHours ?? 3) * H;
+  const wh = o.daily && 24 % (o.windowHours ?? 3) !== 0 ? 3 : (o.windowHours ?? 3); // daily output needs windows that divide a day
+  const win = wh * H;
   // With daily output, align windows to UTC hours so each 3-hour window sits inside one day.
   const start = o.daily ? Math.floor((now - (o.days ?? 15) * 24 * H) / win) * win : now - (o.days ?? 15) * 24 * H;
   const minWin = (o.minWindowHours ?? 0.25) * H;

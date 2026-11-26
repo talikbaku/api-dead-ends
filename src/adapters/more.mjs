@@ -21,7 +21,7 @@ const ALIASES = {
   status: ['status', 'status_code', 'http_status', 'resultcode', 'response_code', 'elb_status_code', 'sc_status', 'code', 'http.response.status_code'],
   first_seen: ['first_seen', 'firstseen', 'min_time', 'first', 'min(_time)', 'earliest'],
   last_seen: ['last_seen', 'lastseen', 'max_time', 'last', 'max(_time)', 'latest'],
-  day: ['day', 'date', '_time', 'timestamp', 'time'],
+  day: ['day', 'date', '_time'],
 };
 
 export const csv = {
@@ -392,14 +392,16 @@ class Duplicates {
   add(r, line) {
     const method = String(r.method || '').toUpperCase();
     if (!method || method === 'GET' || method === 'HEAD' || method === 'OPTIONS') return;
-    const t = Date.parse(r.time);
+    const raw = String(r.time || '');
+    const t = /^\d{10,13}(\.\d+)?$/.test(raw) ? (Number(raw) < 1e12 ? Number(raw) * 1000 : Number(raw)) : Date.parse(raw);
     if (!Number.isFinite(t)) return;
     const tpl = templatePath(r.path, { keep: this.keep });
     const agg = this.by.get(`${method} ${tpl}`) || { method, path: tpl, calls: 0, repeats: 0, afterError: 0 };
     agg.calls++;
     const key = `${clientOf(line)} ${method} ${String(r.path).split(/[?#]/)[0]}`;
     const prev = this.last.get(key);
-    if (prev && t - prev.t <= this.win) { agg.repeats++; if (Number(prev.status) >= 400) agg.afterError++; }
+    // files may come newest-first (access.log, access.log.1), so compare the absolute gap
+    if (prev && Math.abs(t - prev.t) <= this.win) { agg.repeats++; if (Number(prev.status) >= 400) agg.afterError++; }
     this.last.set(key, { t, status: r.status });
     this.by.set(`${method} ${tpl}`, agg);
     if (this.last.size > 200000) this.last.clear(); // bound memory on huge logs (keeps working on newer lines)

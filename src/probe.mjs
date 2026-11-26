@@ -6,11 +6,24 @@
 // nothing saved from the session, only templated paths in the output. CLI only (not an MCP tool).
 
 import { createRequire } from 'node:module';
+import { createHash } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import { templatePath } from './template.mjs';
 import { matchOp } from './spec.mjs';
 
-const SKIP_LINK = /log-?out|sign-?out|logoff|delete|remove|destroy|unsubscribe|cancel|deactivate|revoke|\.(pdf|zip|gz|dmg|exe|csv|xlsx?|docx?|png|jpe?g|gif|svg|mp4|webm)(\?|$)/i;
+const SKIP_LINK = /log-?out|sign-?out|log-?off|delete|remove|destroy|unsubscribe|cancel|deactivate|disable|revoke|purge|reset|clear|close|archive|approve|reject|confirm|pay|checkout\/(submit|confirm)|\.(pdf|zip|gz|dmg|exe|csv|xlsx?|docx?|png|jpe?g|gif|svg|mp4|webm)(\?|$)/i;
+/** Never follow links into API paths, and judge the decoded URL (/log%6Fut is /logout). @param {URL} u */
+const skipLink = (u) => { let p = u.pathname + u.search; try { p = decodeURIComponent(p); } catch { /* keep raw */ } return SKIP_LINK.test(p) || /(^|\/)api(\/|$)/i.test(u.pathname); };
+/** Playwright messages include the URL: drop query strings and fragments before printing. @param {unknown} e */
+const cleanErr = (e) => String(/** @type {any} */ (e)?.message || e).split('\n')[0].replace(/(https?:\/\/[^\s?#]+)[?#]\S*/g, '$1').slice(0, 120);
+
+/** @param {any} req */
+function keyOf(req) {
+  const u = new URL(req.url());
+  const body = req.postData() || '';
+  const h = body ? createHash('sha256').update(body).digest('base64').slice(0, 10) : '';
+  return `${req.method()} ${u.host}${u.pathname}${u.search} ${h}`;
+}
 
 /** Load Playwright from the user's project first, then from wherever Node can find it. */
 export async function loadPlaywright(cwd = process.cwd()) {
@@ -26,11 +39,11 @@ export async function loadPlaywright(cwd = process.cwd()) {
 }
 
 /**
- * @param {{ url: string, pages?: number, login?: boolean, slowMs?: number, settleMs?: number, spec?: any, headed?: boolean, log?: (s: string) => void, waitForEnter?: () => Promise<void> }} o
+ * @param {{ url: string, apiHosts?: string[], pages?: number, login?: boolean, slowMs?: number, settleMs?: number, spec?: any, headed?: boolean, log?: (s: string) => void, waitForEnter?: () => Promise<void> }} o
  */
 export async function probe(o) {
   const pw = await loadPlaywright();
-  if (!pw) throw new Error('probe needs Playwright in your project or globally: npm i -D playwright && npx playwright install chromium');
+  if (!pw) throw new Error('probe needs Playwright in your project (npm i -D playwright && npx playwright install chromium), or set API_DEAD_ENDS_PLAYWRIGHT to its path');
   const log = o.log || (() => {});
   const start = new URL(o.url);
   if (!/^https?:$/.test(start.protocol)) throw new Error('probe: only http(s) URLs');
@@ -38,7 +51,25 @@ export async function probe(o) {
   const slowMs = o.slowMs ?? 2000;
   const browser = await pw.chromium.launch({ headless: !(o.login || o.headed) });
   const ctx = await browser.newContext(); // fresh context: no saved cookies, nothing written to disk
+  // Documents may only load from the start origin (redirects, meta refresh, location= are stopped); popups are closed.
+  await ctx.route('**/*', async (route) => {
+    const req = route.request();
+    if (req.resourceType() !== 'document' || (o.login && loggingIn)) return route.continue();
+    if (new URL(req.url()).origin !== start.origin) return route.abort();
+    // Server redirects are followed inside one request: fetch without following, and hand the 3xx to the browser,
+    // whose next request (the Location) comes back through this filter.
+    try {
+      const resp = await route.fetch({ maxRedirects: 0 });
+      const loc = resp.headers().location;
+      if (resp.status() >= 300 && resp.status() < 400 && loc && new URL(loc, req.url()).origin !== start.origin) return route.abort();
+      return route.fulfill({ response: resp });
+    } catch {
+      return route.abort();
+    }
+  });
+  let loggingIn = false;
   const page = await ctx.newPage();
+  ctx.on('page', (p) => { if (p !== page) p.close().catch(() => {}); });
   /** @type {Array<{ page: string, method: string, path: string, host: string, status: number, ms: number | null, perLoad: number, problem: string }>} */
   const rows = [];
   const visited = new Set();
@@ -46,9 +77,11 @@ export async function probe(o) {
   let requests = 0;
   try {
     if (o.login) {
+      loggingIn = true; // SSO login pages may live on another origin
       await page.goto(start.href).catch(() => {});
       log('Log in in the browser window, then press Enter here.');
       if (o.waitForEnter) await o.waitForEnter();
+      loggingIn = false;
     }
     while (queue.length && visited.size < maxPages) {
       const href = /** @type {string} */ (queue.shift());
@@ -64,7 +97,7 @@ export async function probe(o) {
         if (req.method() === 'OPTIONS') return;
         t0.set(req, Date.now());
         const u = new URL(req.url());
-        const k = `${req.method()} ${u.host}${u.pathname}${u.search}`; // exact URL: what "the same request twice" means
+        const k = keyOf(req); // same method, exact URL and body: what "the same request twice" means
         const prev = seen.get(k);
         if (prev) prev.n++;
         else seen.set(k, { method: req.method(), path: templatePath(u.pathname), host: u.host, n: 1, status: 0, ms: null, failed: '' });
@@ -72,14 +105,12 @@ export async function probe(o) {
       const onRes = (/** @type {any} */ res) => {
         const req = res.request();
         if (!t0.has(req)) return;
-        const u = new URL(req.url());
-        const e = seen.get(`${req.method()} ${u.host}${u.pathname}${u.search}`);
-        if (e) { e.status = res.status(); e.ms = Date.now() - t0.get(req); }
+        const e = seen.get(keyOf(req));
+        if (e) { const st = res.status(); if (st >= e.status) e.status = st; const ms = Date.now() - t0.get(req); if (e.ms == null || ms > e.ms) e.ms = ms; } // keep the worst
       };
       const onFail = (/** @type {any} */ req) => {
         if (!t0.has(req)) return;
-        const u = new URL(req.url());
-        const e = seen.get(`${req.method()} ${u.host}${u.pathname}${u.search}`);
+        const e = seen.get(keyOf(req));
         if (e) e.failed = String(req.failure()?.errorText || 'failed').split('\n')[0].slice(0, 80);
       };
       page.on('request', onReq);
@@ -89,12 +120,13 @@ export async function probe(o) {
       try {
         await page.goto(key, { waitUntil: 'networkidle', timeout: 30000 });
       } catch (e) {
-        log(`${pagePath}: ${String(/** @type {Error} */ (e).message).split('\n')[0].slice(0, 80)}`);
+        log(`${pagePath}: ${cleanErr(e)}`);
       }
       await page.waitForTimeout(o.settleMs ?? 500);
       page.off('request', onReq);
       page.off('response', onRes);
       page.off('requestfailed', onFail);
+      if (new URL(page.url()).origin !== start.origin) { log(`${pagePath}: left the site, skipped`); continue; }
       for (const e of seen.values()) {
         requests += e.n;
         const problem = e.failed ? (/cors|blocked/i.test(e.failed) ? 'cors' : 'network') : e.status >= 500 ? 'server error' : e.status >= 400 ? 'client error' : e.n > 1 ? 'duplicate' : e.ms != null && e.ms > slowMs ? 'slow' : '';
@@ -106,7 +138,7 @@ export async function probe(o) {
       for (const l of links) {
         let u;
         try { u = new URL(l); } catch { continue; }
-        if (u.origin !== start.origin || SKIP_LINK.test(u.href)) continue;
+        if (u.origin !== start.origin || skipLink(u)) continue;
         const k = u.href.split('#')[0];
         if (!visited.has(k) && !queue.includes(k)) queue.push(k);
       }
@@ -114,7 +146,20 @@ export async function probe(o) {
   } finally {
     await browser.close();
   }
-  // Merge identical (page, method, path) rows from different query strings.
+  // Merge identical (page, method, host, path) rows from different query strings / bodies.
+  /** @type {Map<string, any>} */
+  const merged = new Map();
+  for (const r of rows) {
+    const k = `${r.page} ${r.method} ${r.host} ${r.path}`;
+    const m = merged.get(k);
+    if (!m) { merged.set(k, { ...r }); continue; }
+    m.perLoad = Math.max(m.perLoad, r.perLoad);
+    if (r.status >= m.status) m.status = r.status;
+    if (r.ms != null && (m.ms == null || r.ms > m.ms)) m.ms = r.ms;
+    m.problem = [...new Set([m.problem, r.problem].join(', ').split(', ').filter(Boolean))].join(', ');
+  }
+  rows.length = 0;
+  rows.push(...merged.values());
   const result = {
     url: start.origin + templatePath(start.pathname),
     when: new Date().toISOString(),
@@ -124,10 +169,12 @@ export async function probe(o) {
     rows: rows.sort((a, b) => (a.problem ? 0 : 1) - (b.problem ? 0 : 1) || b.perLoad - a.perLoad),
   };
   if (o.spec) {
+    // Spec coverage counts calls to the site's own host only (analytics and third-party APIs are left out).
+    const own = rows.filter((r) => r.host === start.host || (o.apiHosts || []).includes(r.host));
     const called = new Set();
-    for (const r of rows) { const op = matchOp(o.spec.ops, r.method, r.path); if (op) called.add(`${op.method} ${op.path}`); }
+    for (const r of own) { const op = matchOp(o.spec.ops, r.method, r.path); if (op) called.add(`${op.method} ${op.path}`); }
     /** @type {any} */ (result).notCalledByFrontend = o.spec.ops.filter((op) => !called.has(`${op.method} ${op.path}`)).map((op) => ({ method: op.method, path: op.path }));
-    /** @type {any} */ (result).notInSpec = [...new Set(rows.filter((r) => !matchOp(o.spec.ops, r.method, r.path)).map((r) => `${r.method} ${r.path}`))];
+    /** @type {any} */ (result).notInSpec = [...new Set(own.filter((r) => !matchOp(o.spec.ops, r.method, r.path)).map((r) => `${r.method} ${r.path}`))];
   }
   return result;
 }

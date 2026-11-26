@@ -7,14 +7,14 @@ import { readdir, readFile, stat } from 'node:fs/promises';
 import { join, relative, extname, basename } from 'node:path';
 
 const SKIP = new Set(['node_modules', '.git', 'vendor', 'dist', 'build', 'target', 'out', '.next', '.venv', 'venv', '__pycache__', 'coverage', '.api-dead-ends']);
-const EXT = new Set(['.js', '.mjs', '.cjs', '.ts', '.tsx', '.go', '.py', '.rb', '.conf', '.yml', '.yaml', '.java', '.kt', '.xml', '.cs', '.json', '']);
+const EXT = new Set(['.js', '.mjs', '.cjs', '.ts', '.tsx', '.go', '.py', '.rb', '.conf', '.yml', '.yaml', '.java', '.kt', '.xml', '.cs', '.json', '.sh', '.toml', '.ini', '.cfg', '']);
 
 /**
  * Each rule: which files, a regex per line, and what it means.
  * @type {Array<{ id: string, framework: string, files: RegExp, re: RegExp, what: string }>}
  */
 const RULES = [
-  { id: 'nginx-access-log-off', framework: 'nginx', files: /\.conf$|nginx/i, re: /^\s*access_log\s+off\s*;/, what: 'access_log off — requests in this server/location block are not logged' },
+  { id: 'nginx-access-log-off', framework: 'nginx', files: /\.conf$|nginx/i, re: /(^|[{;\s])access_log\s+off\s*;/, what: 'access_log off — requests in this server/location block are not logged' },
   { id: 'ingress-access-log-false', framework: 'ingress-nginx', files: /\.ya?ml$/i, re: /nginx\.ingress\.kubernetes\.io\/enable-access-log:\s*["']?false/i, what: 'ingress access log disabled for this Ingress' },
   { id: 'morgan-skip', framework: 'express (morgan)', files: /\.[cm]?[jt]sx?$/, re: /morgan\s*\([^)]*\bskip\s*:/, what: 'morgan skip rule — some requests are not logged' },
   { id: 'pino-http-ignore', framework: 'express/fastify (pino-http)', files: /\.[cm]?[jt]sx?$/, re: /autoLogging\s*:\s*(false|\{[^}]*ignore)/, what: 'pino-http autoLogging off or ignore rule' },
@@ -54,12 +54,14 @@ export async function logCheck(root, opt = {}) {
       try { if ((await stat(p)).size > 512 * 1024) continue; text = await readFile(p, 'utf8'); } catch { continue; }
       const lines = text.split(/\r?\n/);
       lines.forEach((ln, i) => {
-        for (const r of rules) if (r.re.test(ln)) findings.push({ file: rel, line: i + 1, rule: r.id, framework: r.framework, what: r.what, text: ln.trim().slice(0, 160) });
+        if (ln.length > 4000) return; // minified or generated: no real config line is this long (keeps regexes cheap)
+        const win = [ln, ...lines.slice(i + 1, i + 4).map((x) => x.slice(0, 400))].join(' '); // options often continue on the next lines
+        for (const r of rules) if (r.re.test(ln) || (/morgan|autoLogging|LoggerWithConfig|UseSerilogRequestLogging/.test(ln) && r.re.test(win))) findings.push({ file: rel, line: i + 1, rule: r.id, framework: r.framework, what: r.what, text: ln.trim().slice(0, 160) });
       });
     }
   }
   await walk(root, 0);
-  const covered = new Set(['express', 'fastify', 'gin', 'echo', 'fastapi', 'django', 'flask', 'rails', 'next', 'spring', 'aspnetcore', 'nestjs']);
+  const covered = new Set(['express', 'fastify', 'gin', 'echo', 'fastapi', 'rails', 'next', 'spring', 'aspnetcore']);
   const unknown = (opt.frameworks || []).filter((f) => !covered.has(f));
   return {
     findings,

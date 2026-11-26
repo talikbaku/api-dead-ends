@@ -558,5 +558,29 @@
       }
     }
   ],
-  "ambiguous": []
+  "ambiguous": [],
+  "spikes": [
+    {
+      "method": "GET",
+      "path": "/products/search",
+      "window": 3,
+      "calls": 21769,
+      "errors5xx": 937,
+      "share": 0.043042859111580685,
+      "wholeShare": 0.004923261627229803
+    },
+    {
+      "method": "POST",
+      "path": "/payments",
+      "window": 3,
+      "calls": 7348,
+      "errors5xx": 189,
+      "share": 0.02572128470332063,
+      "wholeShare": 0.002786613738531507
+    }
+  ],
+  "tool": {
+    "name": "api-dead-ends",
+    "version": "0.2.0"
+  }
 }

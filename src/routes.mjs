@@ -159,7 +159,8 @@ export async function scanNext(dir) {
   const out = [];
   const seg = (/** @type {string} */ s) => {
     let m;
-    if ((m = s.match(/^\[\[?(?:\.\.\.)?(\w+)\]?\]$/))) return `{${m[1]}}`;
+    if ((m = s.match(/^\[\[?\.\.\.(\w+)\]?\]$/))) return `{${m[1]}*}`; // catch-all: one or more segments
+    if ((m = s.match(/^\[(\w+)\]$/))) return `{${m[1]}}`;
     return s;
   };
   /** @param {string} base @param {string[]} parts @param {'app'|'pages'} kind */
@@ -176,7 +177,11 @@ export async function scanNext(dir) {
       if (kind === 'app' && /^route\.(js|ts|jsx|tsx|mjs|cjs)$/.test(e.name)) {
         const text = await readFile(join(base, ...parts, e.name), 'utf8').catch(() => '');
         const methods = [...text.matchAll(/export\s+(?:async\s+)?(?:function|const|let|var)\s+(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\b/g)].map((m) => m[1]);
-        for (const m of new Set(methods.length ? methods : ['ANY'])) out.push({ method: m, path: '/' + urlParts.join('/') });
+        const optional = parts.some((p) => /^\[\[\.\.\./.test(p)); // [[...slug]] also matches the bare base path
+        for (const m of new Set(methods.length ? methods : ['ANY'])) {
+          out.push({ method: m, path: '/' + urlParts.join('/') });
+          if (optional) out.push({ method: m, path: '/' + urlParts.filter((x) => !/\*\}$/.test(x)).join('/') });
+        }
       }
       if (kind === 'pages' && /\.(js|ts|jsx|tsx|mjs|cjs)$/.test(e.name) && !e.name.startsWith('_')) {
         const name = e.name.replace(/\.(js|ts|jsx|tsx|mjs|cjs)$/, '');

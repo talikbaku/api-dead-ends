@@ -71,3 +71,24 @@ test('fetch kibana: logs in through the browser session, detects fields, pulls w
     assert.ok(searches >= 9, 'one probe + one search per 3-hour window');
   } finally { srv.close(); }
 });
+
+test('probe: stays on the start origin (redirects, popups) and skips encoded destructive links', { skip: !pw && 'Playwright not installed' }, async () => {
+  const other = [];
+  const ext = createServer((req, res) => { other.push(req.url); res.end('<html><body><script>fetch("/api/evil")</script><a href="BACK">x</a></body></html>'); });
+  await new Promise((r) => ext.listen(0, '127.0.0.1', r));
+  const hits = [];
+  const srv = createServer((req, res) => {
+    hits.push(req.url);
+    if (req.url === '/') return res.end(`<html><body><a href="/go">go</a><a href="/log%6Fut">o</a><a href="/items/1/d%65lete">d</a><a href="/api/reset">r</a>
+      <script>window.open('http://127.0.0.1:${ext.address().port}/popup')</script></body></html>`);
+    if (req.url === '/go') { res.statusCode = 302; res.setHeader('location', `http://127.0.0.1:${ext.address().port}/landing`); return res.end(); }
+    res.end('<html><body>ok</body></html>');
+  });
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  try {
+    const p = await probe({ url: `http://localhost:${srv.address().port}/`, pages: 10 }); // start on 'localhost', the other site is '127.0.0.1' → different origins
+    assert.deepEqual(other, [], 'nothing loaded from the other origin');
+    assert.ok(!hits.some((h) => /log%6Fut|d%65lete|\/api\/reset/.test(h)), `destructive links skipped: ${hits}`);
+    assert.ok(!p.rows.some((r) => r.path === '/api/evil'));
+  } finally { srv.close(); ext.close(); }
+});

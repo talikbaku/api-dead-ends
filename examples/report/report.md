@@ -3,12 +3,22 @@
 ## Summary
 
 - **2 endpoints with server errors** (5xx ≥ 1% of calls and ≥ 10 responses) — **and 1,624 more 5xx on 3 endpoints below that threshold**.
+- **2 recent spikes**: 5xx over the threshold in the last days, hidden by the period average.
 - **1 endpoint with many client errors** (4xx other than 401/404 ≥ 10%).
 - **3 undocumented endpoints** called (not in the spec).
 - **3 endpoints not called** in 30 days, 2 rare, 2 deprecated but still called. Confidence: **low**.
 - 4,210,931 requests in 30 method+path pairs, 2026-10-26 – 2026-11-24. Operations documented in the spec: 26 (undocumented ones are counted separately above).
 
 > "Not called" means not seen in this window — not "dead". Monthly jobs, partners and old clients may call less often, and endpoints that do not log are invisible. Treat it as a recommendation to check, never as a reason to delete.
+
+## Recent spikes
+
+Over the threshold in a recent window, hidden by the average of the whole period. Look at what changed.
+
+| Method | Path | Window | 5xx | Share | Whole period |
+|---|---|---|---:|---:|---|
+| GET | `/products/search` | last 3 days | 937 | 4.30% | 0.49% |
+| POST | `/payments` | last 3 days | 189 | 2.57% | 0.28% |
 
 ## Server errors
 

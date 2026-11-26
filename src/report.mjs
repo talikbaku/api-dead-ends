@@ -95,10 +95,10 @@ export function toMarkdown(r, opt = {}) {
     r.ambiguous.map((a) => [a.method, code(a.path), code(a.matched), n(a.calls)]),
     'A word landed on a spec parameter and was counted into that operation. If your app has its own route for it (e.g. `/orders/export`), that route is undocumented; if the parameter is a slug (`/categories/books`), ignore this.');
   if (opt.duplicates) sec('Repeated non-GET requests (duplicates)', ['Method', 'Path', 'Calls', 'Repeats', 'Share', 'Note'],
-    opt.duplicates.rows.slice(0, TOP).map((/** @type {any} */ d) => [d.method, code(d.path), n(d.calls), n(d.repeats), pct(d.repeats, d.calls), d.note]), opt.duplicates.note);
+    opt.duplicates.rows.slice(0, TOP).map((/** @type {any} */ d) => [txt(d.method), code(d.path), n(Number(d.calls) || 0), n(Number(d.repeats) || 0), pct(Number(d.repeats) || 0, Number(d.calls) || 1), txt(d.note || '')]), txt(opt.duplicates.note || ''));
   if (opt.probe) sec('Front-end probe: problems', ['Page', 'Method', 'Path', 'Status', 'ms', 'Per load', 'Problem'],
-    opt.probe.rows.filter((/** @type {any} */ x) => x.problem).slice(0, TOP).map((/** @type {any} */ x) => [code(x.page), x.method, code(x.path), String(x.status || '—'), x.ms == null ? '—' : n(x.ms), String(x.perLoad), x.problem]),
-    `${opt.probe.pages} pages, ${opt.probe.requests} API requests. ${opt.probe.note}`);
+    opt.probe.rows.filter((/** @type {any} */ x) => x.problem).slice(0, TOP).map((/** @type {any} */ x) => [code(x.page), txt(x.method), code(x.path), String(Number(x.status) || '—'), x.ms == null ? '—' : n(Number(x.ms) || 0), String(Number(x.perLoad) || 0), txt(x.problem)]),
+    `${Number(opt.probe.pages) || 0} pages, ${Number(opt.probe.requests) || 0} API requests. ${txt(opt.probe.note || '')}`);
   sec(`Not called in ${winTxt}`, ['Method', 'Path', 'Note'],
     E.filter((e) => e.class === 'not_seen').sort((a, b) => a.path.localeCompare(b.path))
       .map((e) => [e.method, code(e.path), e.periodicHint ? 'looks periodic (report/job/import): check before removing' : '']));

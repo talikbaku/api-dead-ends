@@ -60,16 +60,16 @@ ${body}
 }
 
 // 1. Real `report` run on the synthetic Shop API example.
-const r = spawnSync(process.execPath, [ROOT + 'bin/api-dead-ends.mjs', 'report', '--usage', 'examples/shop-usage.csv', '--spec', 'examples/shop.openapi.json', '--days', '30', '--out', 'examples/report'],
+const r = spawnSync(process.execPath, [ROOT + 'bin/api-dead-ends.mjs', 'report', '--usage', 'examples/shop-usage-daily.csv', '--spec', 'examples/shop.openapi.json', '--out', 'examples/report'],
   { cwd: ROOT, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1' } });
 if (r.status !== 0) throw new Error(r.stderr);
 const out = r.stderr.trimEnd().split('\n').filter((l) => !/^Note: Node/.test(l))
   .map((l) => l.replace(' → examples/report/report.md', ' → report/report.md'))
   .flatMap((l) => (l.length > 92 && l.includes(', rare') ? [l.slice(0, l.indexOf(', rare') + 1), '  ' + l.slice(l.indexOf(', rare') + 2)] : [l]));
-const color = (l) => (/^✖/.test(l) ? { color: 'red', bold: true } : /^[!↓]/.test(l) ? { color: 'yellow', bold: true } : /^○/.test(l) ? { color: 'cyan', bold: true } : /^\s+…/.test(l) ? { color: 'dim' } : /operations:|deprecated in use|→ report/.test(l) ? { color: 'green' } : {});
+const color = (l) => (/^[✖▲]/.test(l) ? { color: 'red', bold: true } : /^[!↓]/.test(l) ? { color: 'yellow', bold: true } : /^○/.test(l) ? { color: 'cyan', bold: true } : /^\s+…/.test(l) ? { color: 'dim' } : /operations:|deprecated in use|→ report/.test(l) ? { color: 'green' } : {});
 terminal({
   title: 'api-dead-ends — your traffic vs your OpenAPI spec',
-  command: 'npx api-dead-ends report --usage usage.csv --spec openapi.json --days 30 --out report/',
+  command: 'npx api-dead-ends report --usage usage.csv --spec openapi.json --out report/',
   lines: out.map((text) => ({ text, ...color(text) })),
   file: 'report',
 });

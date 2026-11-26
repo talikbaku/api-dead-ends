@@ -32,7 +32,7 @@ export function formatStatus(m) {
  * Add a row to the map, merging by method+path (after path templating).
  * @param {Map<string, UsageRow>} acc
  * @param {{ method?: string, path: string, calls: number|string, first_seen?: string, last_seen?: string, status?: string|Map<string, number> }} r
- * @param {{ template?: boolean, keep?: Set<string>, daily?: boolean }} [opt]
+ * @param {{ template?: boolean, keep?: Set<string>, daily?: boolean, dayFromTime?: boolean }} [opt]
  */
 export function addRow(acc, r, opt = {}) {
   // Everything below comes from logs, i.e. from whoever sent the requests: keep it inert.
@@ -41,7 +41,8 @@ export function addRow(acc, r, opt = {}) {
   const path = cleanText(opt.template === false ? String(r.path) : templatePath(r.path, { keep: opt.keep }));
   const calls = Number(String(r.calls ?? '').replace(/[,_\s]/g, '')) || 0;
   // With opt.daily, rows stay split per UTC day (YYYY-MM-DD) so reports can show 30/7/3/1-day windows.
-  const day = opt.daily ? dayOf(r.day || r.first_seen) : '';
+  // the day comes from an explicit `day` field; raw events (access logs, per-day adapters) may derive it from their timestamp
+  const day = opt.daily ? dayOf(r.day || (opt.dayFromTime ? r.first_seen : '')) : '';
   const key = day ? `${method} ${path} ${day}` : `${method} ${path}`;
   const o = acc.get(key) || { method, path, calls: 0, first_seen: '', last_seen: '', status: new Map(), ...(day ? { day } : {}) };
   o.calls += calls;

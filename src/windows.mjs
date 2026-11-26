@@ -11,21 +11,26 @@ export const WINDOWS = [null, 7, 3, 1];
 /**
  * @param {import('./usage.mjs').UsageRow[]} rows  rows with a `day` (rows without one belong to every window)
  * @param {Parameters<typeof classify>[1]} spec
- * @param {Parameters<typeof classify>[2]} [opt]
+ * @param {Parameters<typeof classify>[2] & { now?: number }} [opt]
  */
 export function computeWindows(rows, spec, opt = {}) {
-  const days = [...new Set(rows.map((r) => r.day).filter(Boolean))].sort();
+  let days = [...new Set(rows.map((r) => r.day).filter(Boolean))].sort();
   if (!days.length) return null;
-  const last = days.at(-1);
-  const total = days.length;
+  // Today's data is partial (an export runs mid-day): leave it out so "1 day" is a whole day.
+  const today = (opt.now ? new Date(opt.now) : new Date()).toISOString().slice(0, 10);
+  const droppedToday = days.length > 1 && days.at(-1) === today;
+  if (droppedToday) { days = days.slice(0, -1); rows = rows.filter((r) => r.day !== today); }
+  const first = days[0];
+  const last = /** @type {string} */ (days.at(-1));
+  const total = Math.round((Date.parse(last) - Date.parse(first)) / 86400e3) + 1; // calendar days, not days with data
   /** @type {Record<string, ReturnType<typeof classify>>} */
   const windows = {};
   for (const n of WINDOWS) {
     if (n !== null && n >= total) continue; // the whole period already covers it
-    const from = n === null ? days[0] : shiftDay(/** @type {string} */ (last), -(n - 1));
+    const from = n === null ? first : shiftDay(last, -(n - 1));
     const acc = new Map();
     for (const r of rows) if (!r.day || r.day >= from) addRow(acc, { ...r, day: undefined }, { template: false });
-    windows[n === null ? 'all' : String(n)] = classify([...acc.values()], spec, { ...opt, days: n === null ? (opt.days ?? total) : n });
+    windows[n === null ? 'all' : String(n)] = classify([...acc.values()], spec, { ...opt, days: n === null ? total : n });
   }
   // Per-day series per operation (calls and 5xx), for sparklines.
   /** @type {Record<string, { calls: number[], e5: number[] }>} */
@@ -54,7 +59,7 @@ export function computeWindows(rows, spec, opt = {}) {
         share: e.errors5xx / e.calls, wholeShare: whole && whole.calls ? whole.errors5xx / whole.calls : 0 });
     }
   }
-  return { days, windows, series, spikes };
+  return { days, windows, series, spikes, droppedToday };
 }
 
 /** @param {string} day @param {number} n */

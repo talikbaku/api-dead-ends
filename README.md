@@ -13,7 +13,7 @@ OpenAPI vs real traffic: compares your spec (or your framework's route list) wit
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/talikbaku/api-dead-ends/main/docs/media/report-dark.svg">
-  <img src="https://raw.githubusercontent.com/talikbaku/api-dead-ends/main/docs/media/report-light.svg" width="720" alt="api-dead-ends in a terminal: endpoints with server errors, undocumented endpoints, endpoints not called in 30 days, and deprecated endpoints that are still called">
+  <img src="https://raw.githubusercontent.com/talikbaku/api-dead-ends/main/docs/media/report-light.svg" width="720" alt="api-dead-ends in a terminal: recent 5xx spikes, endpoints with server errors, undocumented endpoints, endpoints not called in 30 days, and deprecated endpoints that are still called">
 </picture>
 
 ## 🤖 Don't want to read? Copy this into Claude Code or Cursor
@@ -101,6 +101,7 @@ From the synthetic demo in [`examples/`](examples/) — [full report](examples/r
 ```text
 ## Summary
 - 2 endpoints with server errors (5xx ≥ 1% of calls and ≥ 10 responses) — and 1,624 more 5xx on 3 endpoints below that threshold.
+- 2 recent spikes: 5xx over the threshold in the last days, hidden by the period average.
 - 1 endpoint with many client errors (4xx other than 401/404 ≥ 10%).
 - 3 undocumented endpoints called (not in the spec).
 - 3 endpoints not called in 30 days, 2 rare, 2 deprecated but still called. Confidence: low.
@@ -149,7 +150,7 @@ Any other chat assistant: paste [`prompts/any-ai.md`](prompts/any-ai.md) with yo
 ## 🛡️ Safe by default
 
 - **Aggregates only.** The tool reads counts per method + path + status. Raw log lines, IPs, tokens and request bodies never enter it; IDs and token-like path segments are folded to `{id}`, query strings dropped.
-- **No network by default.** It prints queries; you run them with your own access. Exceptions you start yourself: `fetch elasticsearch` (your read-only key) and `probe <url>` (a browser on the site you name).
+- **No network by default.** It prints queries; you run them with your own access. Exceptions you start yourself: `fetch elasticsearch` (your read-only key), `fetch kibana` (your browser login) and `probe <url>` (a browser on the site you name).
 - **Nothing changes your code.** `init` writes a config and next steps, never overwrites, and keeps raw exports out of git.
 - **Traffic is untrusted.** Paths from logs are escaped in reports and in MCP output, so they can't inject Markdown or instructions. [docs/SECURITY.md](docs/SECURITY.md)
 
@@ -166,7 +167,7 @@ Exit codes: `0` ok · `1` check failed · `2` bad input.
 
 ```bash
 git clone https://github.com/talikbaku/api-dead-ends.git && cd api-dead-ends
-node bin/api-dead-ends.mjs report --usage examples/shop-usage.csv --spec examples/shop.openapi.json --days 30 --out /tmp/report
+node bin/api-dead-ends.mjs report --usage examples/shop-usage-daily.csv --spec examples/shop.openapi.json --out /tmp/report   # then open /tmp/report/report.html
 ```
 
 All data in `examples/` is synthetic.

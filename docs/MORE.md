@@ -21,7 +21,7 @@ npx api-dead-ends init
 
 Then follow `NEXT-STEPS.md`. For most sources it is three commands: print the query → run it in your tool and save the response → `convert` and `report`.
 
-`init --help` lists all flags. For Elasticsearch, `--access paste` (default) means: the tool prints a query, you run it in Kibana Dev Tools and save the response — no key needed; `--access api-key` pulls directly with a read-only key in `ES_API_KEY`. Without a terminal, `init` refuses to guess: pipe answers (one per line) or add `--yes`.
+`init --help` lists all flags. For Elasticsearch there are three ways: `--access kibana` — a browser opens, you log in to Kibana and the export runs through your session (needs Playwright; the default when `init` asks); `--access api-key` — pulls directly with a read-only key in `ES_API_KEY`; `--access paste` — the tool prints a query, you run it in Kibana Dev Tools and save the response (the default with `--yes` and no `--url`). Without a terminal, `init` refuses to guess: pipe answers (one per line) or add `--yes`.
 
 ### Already have an export?
 
@@ -92,7 +92,7 @@ Without traffic there is no report — an empty table would mark every endpoint 
 - **Web server / ingress access logs** (nginx, Apache, ALB): use the `accesslog` source.
 - **Anything that already collects traces or metrics** (Datadog, Prometheus, OpenTelemetry, New Relic…): pick that source. For services that collect nothing, OpenTelemetry is the standard way to start: Java needs only an agent at startup; Python, Ruby, .NET and Go have auto-instrumentation.
 - **Next.js on Vercel:** runtime logs are short-lived (about 1 hour on Hobby, 1 day on Pro). Use a log drain (Pro) or OpenTelemetry (`@vercel/otel`) to a backend, then pick that source.
-- Planned: a tiny in-repo recorder for Node and `probe <url>` to check a site from the browser.
+- `probe <url>` checks the front end from a browser today, with no logs at all. Planned: a tiny in-repo recorder for Node.
 
 ## What is written to disk
 
@@ -134,7 +134,7 @@ Everything in the "Undocumented" section: method + path pairs that real clients 
 Yes. Build one from your framework's route list with `spec from-routes` (Rails, Flask, Django, Spring, Gin, Echo, Laravel, Express…).
 
 ### Does it send my logs anywhere?
-No. It reads aggregated counts locally and makes no network calls except `fetch elasticsearch` to your own cluster.
+No. It reads aggregated counts locally. The only network access is what you start yourself: `fetch elasticsearch` / `fetch kibana` to your own cluster, and `probe <url>` to the site you name.
 
 ### What about shadow APIs and zombie APIs?
 Shadow APIs are the "Undocumented" endpoints. Zombie APIs are usually "Deprecated but still called" or "Not called" endpoints that are still deployed.

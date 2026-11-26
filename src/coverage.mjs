@@ -32,6 +32,11 @@ export function coverage(checked, reference, spec, opt = {}) {
   };
   add(reference, 'reference');
   add(checked, 'checked');
+  // A side without methods (ANY) is compared by path: fold same-path entries into the ANY entry.
+  for (const [k, e] of [...by]) {
+    if (e.method !== 'ANY') continue;
+    for (const [k2, e2] of [...by]) if (k2 !== k && e2.path === e.path) { e.reference += e2.reference; e.checked += e2.checked; by.delete(k2); }
+  }
   const all = [...by.values()];
   const refTotal = all.reduce((a, x) => a + x.reference, 0);
   const chkTotal = all.reduce((a, x) => a + x.checked, 0);

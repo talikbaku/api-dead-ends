@@ -310,7 +310,24 @@ test('spec from-next: App Router route files and pages/api become an OpenAPI spe
   const r = run(dir, ['spec', 'from-next', 'web', '-o', 'next.json']);
   assert.equal(r.status, 0, r.stderr);
   const paths = JSON.parse(readFileSync(join(dir, 'next.json'), 'utf8')).paths;
-  assert.deepEqual(Object.keys(paths).sort(), ['/api/cart', '/api/docs/{slug}', '/api/hello', '/api/products/{id}']);
+  assert.deepEqual(Object.keys(paths).sort(), ['/api/cart', '/api/docs', '/api/docs/{slug*}', '/api/hello', '/api/products/{id}']);
+  const { loadSpec: ls, matchOp: mo } = await import('../src/spec.mjs');
+  const sp = ls(JSON.parse(readFileSync(join(dir, 'next.json'), 'utf8')));
+  assert.equal(mo(sp.ops, 'GET', '/api/docs/a/b/c').path, '/api/docs/{slug*}', 'catch-all spans several segments');
   assert.ok(paths['/api/products/{id}'].get && paths['/api/products/{id}'].delete);
   assert.ok(paths['/api/hello']['x-ade-any-method']);
+});
+
+test('review fixes: no fake windows without a day column; calendar windows; whole-period days match', () => {
+  const dir = makeRepo();
+  writeFileSync(join(dir, 'u.csv'), 'method,path,calls,first_seen,last_seen,status\nGET,/api/products,20000,2026-01-01T00:00:00Z,2026-01-01T00:00:00Z,200:20000\nGET,/api/products,40,2026-01-28T00:00:00Z,2026-01-28T00:00:00Z,500:40\n');
+  const j = JSON.parse(run(dir, ['report', '--usage', 'u.csv', '--spec', 'services/gateway/openapi.json', '--json']).stdout);
+  assert.deepEqual(j.spikes, [], 'first_seen alone does not create per-day windows');
+  writeFileSync(join(dir, 'd.csv'), 'method,path,calls,status,day\nGET,/api/products,10,200:10,2026-01-01\nGET,/api/products,10,200:10,2026-01-02\nGET,/api/products,10,200:10,2026-01-10\n');
+  const r = run(dir, ['report', '--usage', 'd.csv', '--spec', 'services/gateway/openapi.json', '--out', 'rep', '--days', '90']);
+  assert.equal(r.status, 0, r.stderr);
+  const k = JSON.parse(readFileSync(join(dir, 'rep/report.json'), 'utf8'));
+  assert.equal(k.window.days, 10, 'calendar span, --days ignored for per-day data');
+  assert.match(r.stderr, /--days 90 is ignored/);
+  assert.match(readFileSync(join(dir, 'rep/report.html'), 'utf8'), /"7":/, '7-day window exists inside a 10-day span');
 });

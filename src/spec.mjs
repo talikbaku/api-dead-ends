@@ -71,7 +71,8 @@ export function basePrefix(spec) {
 function buildRegex(base, segs) {
   const body = segs
     // One parameter per segment → [^/]+; several ({a}{b}, {name}.{ext}) → the whole segment is [^/]+ (no backtracking blow-up).
-    .map((s) => (isParam(s) ? ((s.match(/\{[^}]+\}/g) || []).length === 1 ? s.split(/\{[^}]+\}/).map(esc).join('[^/]+') : '[^/]+') : esc(s)))
+    .map((s) => (/^\{\w+\*\}$/.test(s) ? '.+' // catch-all {slug*} (Next.js [...slug]) spans several segments
+      : isParam(s) ? ((s.match(/\{[^}]+\}/g) || []).length === 1 ? s.split(/\{[^}]+\}/).map(esc).join('[^/]+') : '[^/]+') : esc(s)))
     .join('/');
   const pre = base ? `(?:${esc(base)})?` : '';
   if (!body) return new RegExp(`^${pre}/?$`); // spec path "/" also matches the bare base path

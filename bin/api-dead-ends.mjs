@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // @ts-check
 import { parseArgs } from 'node:util';
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { parseUsage, addRow, toCsv } from '../src/usage.mjs';
 import { loadSpec, literalSegments } from '../src/spec.mjs';
@@ -26,7 +26,7 @@ Start here:
                                      api-dead-ends.config.json and .api-dead-ends/NEXT-STEPS.md. Changes no code.
       --yes                          take defaults (non-interactive)   --dry-run   write nothing
       --json                         print the plan as JSON (for scripts and AI agents)
-      --source S --services a,b --spec F --routes F --days N --index P --access paste|api-key --ai off|prompt|mcp --force
+      --source S --services a,b --spec F --routes F --days N --index P --access kibana|api-key|paste --url U --ai off|prompt|mcp --force
   api-dead-ends detect [dir]         Print what the scan found (JSON).
   api-dead-ends spec from-routes <routes.txt|json> [-o openapi.json]   ·   spec from-next <dir>  (Next.js app/ and pages/api)
                                      No OpenAPI? Build one from your framework's route list (rails routes, flask routes,
@@ -100,7 +100,7 @@ try {
     files: { type: 'string' }, logs: { type: 'string' }, dir: { type: 'string' }, 'log-name': { type: 'string' },
     response: { type: 'string' }, daily: { type: 'boolean' }, html: { type: 'boolean' },
     duplicates: { type: 'string' }, reference: { type: 'string' }, 'dup-window': { type: 'string' },
-    pages: { type: 'string' }, login: { type: 'boolean' }, headed: { type: 'boolean' }, probe: { type: 'string' }, 'slow-ms': { type: 'string' }, 'error-min': { type: 'string' }, 'error-share': { type: 'string' }, title: { type: 'string' },
+    pages: { type: 'string' }, 'api-host': { type: 'string' }, login: { type: 'boolean' }, headed: { type: 'boolean' }, probe: { type: 'string' }, 'slow-ms': { type: 'string' }, 'error-min': { type: 'string' }, 'error-share': { type: 'string' }, title: { type: 'string' },
   },
   });
 } catch (e) {
@@ -118,7 +118,8 @@ api-dead-ends.config.json and .api-dead-ends/NEXT-STEPS.md. Never changes code, 
   --service / --services a,b   only these services (names, dirs or numbers from the scan)
   --spec F              OpenAPI JSON (one service)       --routes F   framework route list (one service)
   --logs F              access log files / CSV export (sources accesslog, csv)
-  --index P --access paste|api-key --url U    Elasticsearch details
+  --access kibana|api-key|paste --url U --index P   Elasticsearch: browser login to Kibana (default when asked),
+                        read-only API key, or paste a query by hand (default with --yes and no --url)
   --log-name N          service name in the source (one service)
   --days N              window          --ai off|prompt|mcp      --force   overwrite existing files
 
@@ -170,11 +171,12 @@ Writes report.md, report.json and report.html (with --out), or prints Markdown /
 api-dead-ends spec from-next <next.js dir> [--title T] [-o openapi.json]
 Builds a minimal OpenAPI spec from your framework's route list (rails routes, flask routes, Spring /actuator/mappings,
 Gin debug lines, Laravel route:list --json, express-list-endpoints, Django show_urls, "METHOD /path" lines) or Next.js route files.`,
-  probe: `api-dead-ends probe <url> [--pages 20] [--login] [--headed] [--slow-ms 2000] [--spec F] [--out DIR]
+  probe: `api-dead-ends probe <url> [--pages 20] [--login] [--headed] [--slow-ms 2000] [--spec F] [--api-host api.example.com] [--out DIR]
 Opens the site in Chromium (needs Playwright: npm i -D playwright && npx playwright install chromium) and records the API calls
 each page makes: the same request several times per page load, 4xx/5xx/network/CORS failures, slow calls, and — with --spec —
 which documented endpoints the pages call. Navigation only (no clicks or forms), same origin, logout/delete-like links skipped.
-  --login   opens a visible browser; log in, then press Enter in the terminal. The session is not saved.`,
+  --login     opens a visible browser; log in, then press Enter in the terminal. The session is not saved.
+  --api-host  your API lives on another host (api.example.com): count it for spec coverage too.`,
   coverage: `api-dead-ends coverage --usage app-logs.csv --reference ingress.csv [--spec F] [--out DIR] [--json]
 "Not logged": endpoints the reference source (ingress, load balancer, APM) sees but the application logs miss or under-count.`,
   'logging-check': `api-dead-ends logging-check [dir] [--json]
@@ -182,7 +184,7 @@ Static scan for settings that switch request logging off (nginx access_log off, 
 pino-http ignore, fastify disableRequestLogging, gin SkipPaths, echo Skipper, uvicorn --no-access-log, lograge ignore,
 Next.js middleware matcher, Spring excludePathPatterns, Serilog filters). Unknown frameworks are reported as unknown.`,
   detect: `api-dead-ends detect [dir]   Read-only scan: services, languages, frameworks, specs, route files, observability hints (JSON).`,
-  mcp: `api-dead-ends mcp   Stdio MCP server. Tools: detect_project, setup_plan, build_query, spec_from_routes, analyze_usage, write_report.`,
+  mcp: `api-dead-ends mcp   Stdio MCP server. Read tools: detect_project, setup_plan, build_query, spec_from_routes, analyze_usage. Write tools: init, write_report.`,
   utcp: `api-dead-ends utcp   Prints a UTCP manual whose tools call this CLI directly.`,
 };
 if (v.help || !cmd0) {
@@ -211,7 +213,7 @@ if (cmd0 === 'probe') {
   const { createInterface } = await import('node:readline');
   const waitForEnter = () => new Promise((res) => { const rl = createInterface({ input: process.stdin }); rl.once('line', () => { rl.close(); res(undefined); }); });
   try {
-    const p = await probe({ url: pos[1], pages: v.pages ? Number(v.pages) : undefined, login: v.login, headed: v.headed, slowMs: v['slow-ms'] ? Number(v['slow-ms']) : undefined, spec: pspec, log: (s) => console.error(s), waitForEnter });
+    const p = await probe({ url: pos[1], apiHosts: v['api-host'] ? String(v['api-host']).split(',') : [], pages: v.pages ? Number(v.pages) : undefined, login: v.login, headed: v.headed, slowMs: v['slow-ms'] ? Number(v['slow-ms']) : undefined, spec: pspec, log: (s) => console.error(s), waitForEnter });
     const md = probeToMarkdown(p);
     if (v.out) {
       await mkdir(v.out, { recursive: true });
@@ -226,13 +228,14 @@ if (cmd0 === 'probe') {
   }
   await exitAfterFlush(0);
 }
+const readOr2 = async (/** @type {string} */ f) => { try { return await readFile(f, 'utf8'); } catch { console.error(`Error: cannot read ${f}`); process.exit(2); } };
 if (cmd0 === 'coverage') {
   const { coverage, coverageToMarkdown } = await import('../src/coverage.mjs');
   if (!v.usage || !v.reference) { console.error('Usage: api-dead-ends coverage --usage app-logs.csv --reference ingress.csv [--spec openapi.json] [--out dir]\n  Which endpoints reach the reference source (ingress, load balancer, APM) but are missing from the application logs.'); process.exit(2); }
   let cspec = null;
   try { cspec = v.spec ? loadSpec(JSON.parse(await readFile(v.spec, 'utf8'))) : null; } catch (e) { console.error(`Error: ${String(/** @type {Error} */ (e).message).split('\n')[0]}`); process.exit(2); }
   const ckeep = cspec ? literalSegments(cspec, isIdSegment) : new Set();
-  const c = coverage(parseUsage(await readFile(v.usage, 'utf8'), { keep: ckeep }), parseUsage(await readFile(v.reference, 'utf8'), { keep: ckeep }), cspec);
+  const c = coverage(parseUsage(await readOr2(String(v.usage)), { keep: ckeep }), parseUsage(await readOr2(String(v.reference)), { keep: ckeep }), cspec);
   const md = coverageToMarkdown(c);
   if (v.json) process.stdout.write(JSON.stringify(c, null, 2) + '\n');
   else if (v.out) {
@@ -260,8 +263,9 @@ if (cmd0 === 'logging-check') {
 if (cmd0 === 'detect') { console.log(JSON.stringify(await detectProject(pos[1] || '.'), null, 2)); await exitAfterFlush(0); }
 if (cmd0 === 'spec') {
   if (!['from-routes', 'from-next'].includes(pos[1]) || !pos[2]) { console.error('Usage: api-dead-ends spec from-routes <routes.txt|routes.json> [-o openapi.json]\n       api-dead-ends spec from-next <next.js project dir> [-o openapi.json]'); process.exit(2); }
-  const routes = pos[1] === 'from-next' ? await (await import('../src/routes.mjs')).scanNext(pos[2]) : parseRoutes(await readFile(pos[2], 'utf8'));
-  if (!routes.length) { console.error('No routes recognised. Expected lines like "GET /users/:id" or a framework route dump.'); process.exit(2); }
+  if (pos[1] === 'from-next' && !(await stat(pos[2]).then((x) => x.isDirectory()).catch(() => false))) { console.error(`Error: ${pos[2]} is not a directory`); process.exit(2); }
+  const routes = pos[1] === 'from-next' ? await (await import('../src/routes.mjs')).scanNext(pos[2]) : parseRoutes(await readOr2(pos[2]));
+  if (!routes.length) { console.error(pos[1] === 'from-next' ? 'No Next.js routes found (looked for app/**/route.* and pages/api/** under that folder).' : 'No routes recognised. Expected lines like "GET /users/:id" or a framework route dump.'); process.exit(2); }
   const doc = JSON.stringify(routesToOpenApi(routes, { title: v.title }), null, 2) + '\n';
   if (v.out) { await mkdir(join(v.out, '..'), { recursive: true }); await writeFile(v.out, doc); console.error(`${routes.length} routes → ${v.out}`); } else process.stdout.write(doc);
   await exitAfterFlush(0);
@@ -299,7 +303,7 @@ try {
     /** @type {Map<string, any>} */
     const acc = new Map();
     if (pos[1] === 'accesslog') {
-      const st = await accesslog.stream(pos.slice(2), (r) => addRow(acc, r, { keep, daily: v.daily }), v.duplicates ? { duplicates: { windowSec: v['dup-window'] ? Number(v['dup-window']) : 2, keep } } : {});
+      const st = await accesslog.stream(pos.slice(2), (r) => addRow(acc, r, { keep, daily: v.daily, dayFromTime: true }), v.duplicates ? { duplicates: { windowSec: v['dup-window'] ? Number(v['dup-window']) : 2, keep } } : {});
       console.error(`${st.lines} lines read, ${st.bad} not recognized`);
       if (st.duplicates) {
         await writeFile(v.duplicates, JSON.stringify(st.duplicates, null, 2) + '\n');
@@ -357,10 +361,12 @@ try {
     const share = num('error-share', 0, 100); // always a percent: 1 = 1%, 0.5 = 0.5%
     const failOn = v['fail-on']?.split(',').map((x) => x.trim()).filter(Boolean);
     for (const x of failOn || []) if (!['new-shadow', 'deprecated-growth'].includes(x)) fail(`--fail-on: unknown check "${x}". Use: new-shadow, deprecated-growth`);
-    const r = classify(rows, spec, { days: num('days', 1, 3650), rare: num('rare', 1, 1e9), keepPreflight: v['keep-preflight'],
-      errorMin: num('error-min', 1, 1e9), errorShare: share === undefined ? undefined : share / 100 });
     const cOpt = { rare: num('rare', 1, 1e9), keepPreflight: v['keep-preflight'], errorMin: num('error-min', 1, 1e9), errorShare: share === undefined ? undefined : share / 100 };
-    const win = hasDays ? computeWindows(dailyRows, spec, { ...cOpt, days: num('days', 1, 3650) }) : null;
+    // With per-day data the window is what the data covers; --days only applies to tables without dates.
+    const win = hasDays ? computeWindows(dailyRows, spec, cOpt) : null;
+    if (win && v.days && Number(v.days) !== win.windows.all.window.days) console.error(`Note: the data covers ${win.windows.all.window.days} days; --days ${v.days} is ignored for per-day data.`);
+    if (win?.droppedToday) console.error('Note: today is incomplete and left out of the windows.');
+    const r = win ? win.windows.all : classify(rows, spec, { ...cOpt, days: num('days', 1, 3650) });
     const extra = { spikes: win?.spikes || [], toolVersion: VERSION,
       probe: v.probe ? JSON.parse(await readFile(v.probe, 'utf8')) : null,
       duplicates: v.duplicates ? JSON.parse(await readFile(v.duplicates, 'utf8')) : null };

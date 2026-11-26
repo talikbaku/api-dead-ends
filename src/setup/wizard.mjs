@@ -52,7 +52,8 @@ export async function runInit(io) {
   /** @type {import('./plan.mjs').Config['source']} */
   const source = { type: src.id };
   if (src.id === 'elasticsearch') {
-    const accDef = f.access === 'api-key' ? '2' : f.access === 'paste' ? '3' : '1';
+    // Non-interactive runs without a Kibana URL default to "paste" (a placeholder URL would open a browser for nothing).
+    const accDef = f.access === 'api-key' ? '2' : f.access === 'kibana' ? '1' : f.access === 'paste' || (auto && !f.url) ? '3' : '1';
     const acc = await ask(`Access: 1) Kibana login in a browser (recommended, needs Playwright)  2) read-only API key  3) paste a query into Dev Tools by hand [${accDef}]: `, accDef);
     source.access = /^(2|api-key)$/.test(acc.trim()) ? 'api-key' : /^(3|paste)$/.test(acc.trim()) ? 'paste' : 'kibana';
     if (source.access === 'kibana') source.url = await ask(`Kibana Discover URL with your data view [${f.url || 'https://kibana.example/app/discover'}]: `, f.url || 'https://kibana.example/app/discover');

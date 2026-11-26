@@ -22,7 +22,7 @@ const CANDIDATES = {
  */
 export async function fetchKibana(o) {
   const pw = await loadPlaywright();
-  if (!pw) throw new Error('fetch kibana needs Playwright: npm i -D playwright && npx playwright install chromium');
+  if (!pw) throw new Error('fetch kibana needs Playwright in this folder (npm i -D playwright && npx playwright install chromium), or set API_DEAD_ENDS_PLAYWRIGHT to its path');
   const log = o.log || (() => {});
   const u = new URL(o.url);
   if (!/^https?:$/.test(u.protocol)) throw new Error('Kibana URL must be http(s)');
@@ -47,7 +47,9 @@ export async function fetchKibana(o) {
       if (Date.now() > deadline) throw new Error('no login within the time limit (or no data view in the URL — open Discover on the right data view and copy its URL)');
       await page.waitForTimeout(3000);
     }
-    const index = dv.data_view.title;
+    const index = String(dv.data_view.title || '');
+    if (!/^[^/?#\s]+$/.test(index)) throw new Error('unexpected data view index pattern (contains / ? # or spaces)');
+    if (u.protocol === 'http:' && !/^(localhost|127\.0\.0\.1)$/.test(u.hostname)) log('Warning: Kibana over plain http — your session travels unencrypted.');
     const timeField = dv.data_view.timeFieldName || '@timestamp';
     const fields = Object.values(dv.data_view.fields || {});
     const agg = new Set(fields.filter((/** @type {any} */ f) => f.aggregatable).map((/** @type {any} */ f) => f.name));
