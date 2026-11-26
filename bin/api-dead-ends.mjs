@@ -35,6 +35,8 @@ Start here:
                                      per page, broken and slow calls. Navigation only, same origin, nothing saved.
   api-dead-ends coverage --usage app.csv --reference ingress.csv [--spec F]
                                      "Not logged": endpoints seen by the ingress / load balancer / APM but missing from app logs.
+  api-dead-ends logging-check [dir]  Static check: places in code/config that switch request logging off
+                                     (nginx, ingress, morgan, pino-http, fastify, gin, echo, uvicorn, lograge, Next.js…).
   api-dead-ends mcp                  Run as an MCP server (stdio) for Claude Code, Cursor, VS Code…
   api-dead-ends utcp                 Print a UTCP manual (experimental) so UTCP clients can call this CLI directly.
 
@@ -193,6 +195,20 @@ if (cmd0 === 'coverage') {
     await writeFile(join(v.out, 'coverage.json'), JSON.stringify(c, null, 2) + '\n');
     console.error(`not logged: ${c.notLogged.length}, under-logged: ${c.underLogged.length} → ${join(v.out, 'coverage.md')}`);
   } else process.stdout.write(md);
+  await exitAfterFlush(0);
+}
+if (cmd0 === 'logging-check') {
+  const { logCheck } = await import('../src/logcheck.mjs');
+  const root = pos[1] || '.';
+  const det = await detectProject(root);
+  const r = await logCheck(root, { frameworks: det.services.flatMap((s) => s.frameworks) });
+  if (v.json) process.stdout.write(JSON.stringify(r, null, 2) + '\n');
+  else {
+    console.log(r.findings.length ? 'Places where request logging is switched off:' : 'No explicit "do not log" settings found.');
+    for (const f of r.findings) console.log(`  ${f.file}:${f.line}  [${f.framework}] ${f.what}\n      ${f.text}`);
+    if (r.unknown.length) console.log(`No rules for: ${[...new Set(r.unknown)].join(', ')} — unknown, check manually or with an AI assistant.`);
+    console.log(r.note);
+  }
   await exitAfterFlush(0);
 }
 if (cmd0 === 'detect') { console.log(JSON.stringify(await detectProject(pos[1] || '.'), null, 2)); await exitAfterFlush(0); }

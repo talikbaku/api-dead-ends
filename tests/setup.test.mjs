@@ -287,3 +287,13 @@ test('coverage: endpoints seen by the reference source but missing or under-logg
   assert.deepEqual(c.notLogged.map((x) => x.path), ['/api/cart']);
   assert.deepEqual(c.underLogged.map((x) => [x.path, x.checked, x.reference]), [['/api/products/{id}', 100, 300]]);
 });
+
+test('logging-check: finds explicit "do not log" settings with file and line', () => {
+  const dir = makeRepo();
+  writeFileSync(join(dir, 'nginx.conf'), 'server {\n  location /health {\n    access_log off;\n  }\n}\n');
+  writeFileSync(join(dir, 'services/gateway/app.js'), "const app = require('express')();\napp.use(morgan('combined', { skip: (req) => req.url === '/metrics' }));\n");
+  const r = run(dir, ['logging-check', '.', '--json']);
+  assert.equal(r.status, 0, r.stderr);
+  const j = JSON.parse(r.stdout);
+  assert.deepEqual(j.findings.map((f) => [f.file, f.line, f.rule]).sort(), [['nginx.conf', 3, 'nginx-access-log-off'], ['services/gateway/app.js', 2, 'morgan-skip']]);
+});
