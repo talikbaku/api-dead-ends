@@ -2,11 +2,12 @@
 
 [![test](https://github.com/talikbaku/api-dead-ends/actions/workflows/test.yml/badge.svg)](https://github.com/talikbaku/api-dead-ends/actions/workflows/test.yml)
 [![npm](https://img.shields.io/npm/v/api-dead-ends)](https://www.npmjs.com/package/api-dead-ends)
-[![MCP server](https://img.shields.io/badge/MCP-server-6E56CF)](#-ai-agents-mcp)
-[![Claude Code plugin](https://img.shields.io/badge/Claude%20Code-plugin-D97757)](#-ai-agents-mcp)
+[![MCP server](https://img.shields.io/badge/MCP-server-6E56CF)](#-ai-agents-mcp-utcp)
+[![Claude Code plugin](https://img.shields.io/badge/Claude%20Code-plugin-D97757)](#-ai-agents-mcp-utcp)
+[![UTCP](https://img.shields.io/badge/UTCP-manual-2E7D32)](#-ai-agents-mcp-utcp)
 ![license](https://img.shields.io/badge/license-MIT-blue)
 
-**Find API endpoints that fail, are never called, or are missing from your OpenAPI spec — using the logs and metrics you already have.**
+**Find API endpoints that fail, are never called, or are missing from your OpenAPI spec — using the logs and metrics you already have.** CLI, MCP server, UTCP manual and Claude Code plugin.
 
 OpenAPI vs real traffic: compares your spec (or your framework's route list) with request counts from your logs, APM or metrics, and finds unused API endpoints, endpoints not called in production, shadow APIs and zombie APIs — an API inventory from facts. Local, read-only, zero dependencies, any language.
 
@@ -107,7 +108,7 @@ From the synthetic demo in [`examples/`](examples/) — [full report](examples/r
 | Product | Which features' endpoints does nobody use? | Not called (with confidence) |
 | Small team, no logs | What can I get today? | Access logs → `convert accesslog`; see [no logs](docs/MORE.md#no-logs-at-all) |
 
-## 🤖 AI agents (MCP)
+## 🤖 AI agents (MCP, UTCP)
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/talikbaku/api-dead-ends/main/docs/media/claude-dark.svg">
@@ -129,7 +130,11 @@ From the synthetic demo in [`examples/`](examples/) — [full report](examples/r
 { "mcpServers": { "ade": { "command": "npx", "args": ["-y", "api-dead-ends@0.2.0", "mcp"] } } }
 ```
 
-Five tools, reading only inside the working directory: `detect_project`, `setup_plan`, `build_query`, `spec_from_routes`, `analyze_usage`. Any other chat assistant: paste [`prompts/any-ai.md`](prompts/any-ai.md) with your `report.json`. Details: [docs/MCP.md](docs/MCP.md).
+Five tools, reading only inside the working directory: `detect_project`, `setup_plan`, `build_query`, `spec_from_routes`, `analyze_usage`.
+
+**UTCP** (experimental): no server needed — `npx api-dead-ends utcp` prints a UTCP manual with the same five tools that call the CLI directly. Register it as a `cli` call template in any UTCP client.
+
+Any other chat assistant: paste [`prompts/any-ai.md`](prompts/any-ai.md) with your `report.json`. Details: [docs/MCP.md](docs/MCP.md).
 
 ## 🛡️ Safe by default
 

@@ -20,7 +20,14 @@ The numbers never depend on AI. If you want an assistant to help read results an
   /plugin marketplace add talikbaku/api-dead-ends
   /plugin install api-dead-ends@api-dead-ends-marketplace
   ```
-- **UTCP** (experimental): `api-dead-ends utcp` prints a UTCP manual that calls this CLI directly.
+- **UTCP** (experimental): `api-dead-ends utcp` prints a UTCP manual that calls this CLI directly — no server process. Register it in a UTCP client as a manual discovered from a CLI command:
+
+  ```json
+  { "manual_call_templates": [{ "name": "api_dead_ends", "call_template_type": "cli",
+      "commands": [{ "command": "npx -y api-dead-ends@0.2.0 utcp" }] }] }
+  ```
+
+  Tools: `detect_project`, `setup_plan`, `build_query`, `spec_from_routes`, `analyze_usage` (same as MCP). Arguments are passed single-quoted; values containing a single quote are not supported. Not yet tested with a UTCP client — feedback welcome.
 - `init` with "AI: instructions file" writes `.api-dead-ends/AGENT.md` with the rules for assistants: never treat "not seen" as dead, never send raw logs, never call non-GET endpoints in production.
 
 ## Tools

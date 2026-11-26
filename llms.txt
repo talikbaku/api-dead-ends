@@ -6,6 +6,7 @@
 - CLI: `npx api-dead-ends init` (Node.js >= 20, 22+ recommended, zero dependencies)
 - Claude Code: `/plugin marketplace add talikbaku/api-dead-ends` then `/plugin install api-dead-ends@api-dead-ends-marketplace`
 - MCP client: `{"mcpServers":{"ade":{"command":"npx","args":["-y","api-dead-ends@0.2.0","mcp"]}}}`
+- UTCP client (experimental): manual from `npx -y api-dead-ends@0.2.0 utcp` (cli call template)
 
 ## Main commands
 - `init` — scan repo, ask questions, write `.api-dead-ends/NEXT-STEPS.md` (`--yes`, `--json`, `--dry-run`, `--source`, `--service`, `--spec`, `--routes`, `--logs`, `--days`)
@@ -14,6 +15,7 @@
 - `spec from-routes <routes.txt|json>` — OpenAPI from rails/flask/django/spring/gin/echo/laravel/express route lists
 - `report --usage usage.csv --spec openapi.json --days N --out dir/` — report.md + report.json; `--json` prints JSON; `--baseline` + `--fail-on new-shadow,deprecated-growth` for CI
 - `mcp` — stdio MCP server; tools: detect_project, setup_plan, build_query, spec_from_routes, analyze_usage
+- `utcp` — prints a UTCP manual with the same tools (experimental)
 
 ## Rules for agents
 - Never treat "not called" as dead; state window and confidence; recommend, don't delete.

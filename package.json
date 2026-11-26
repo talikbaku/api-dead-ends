@@ -1,7 +1,7 @@
 {
   "name": "api-dead-ends",
   "version": "0.2.0",
-  "description": "Find API endpoints that fail, are never called, or are missing from your OpenAPI spec — from logs and metrics you already have. Shadow & zombie API inventory. Read-only CLI, MCP server, Claude Code plugin.",
+  "description": "Find API endpoints that fail, are never called, or are missing from your OpenAPI spec — from logs and metrics you already have. Shadow & zombie API inventory. Read-only CLI, MCP server, UTCP manual, Claude Code plugin.",
   "keywords": [
     "openapi",
     "swagger",
@@ -23,6 +23,7 @@
     "cloudwatch",
     "opentelemetry",
     "mcp",
+    "utcp",
     "model-context-protocol",
     "claude-code",
     "cli"
