@@ -8,11 +8,21 @@ import { NORMALIZE_PAINLESS } from './elasticsearch.mjs';
 const TRACE = ['trace.id', 'x-trace-id', 'trace_id', 'traceId', 'traceid', 'request_id', 'x-request-id'];
 const ERROR = ['error.message', 'error.msg', 'err.message', 'exception.message', 'error.type'];
 
-/** Pick a trace field and an error-text field that are aggregatable. @param {Set<string>} agg */
-export function pickErrorFields(agg) {
-  const pick = (/** @type {string[]} */ c) => c.map((n) => (agg.has(n) ? n : agg.has(`${n}.keyword`) ? `${n}.keyword` : null)).find(Boolean) || null;
+/**
+ * Pick a trace field and an error-text field that are aggregatable — and, when `counts` is given (documents of
+ * this service that have the field), the one this service actually fills (a shared data view has many unused fields).
+ * @param {Set<string>} agg @param {Map<string, number>} [counts]
+ */
+export function pickErrorFields(agg, counts) {
+  const pick = (/** @type {string[]} */ c) => {
+    const ok = c.map((n) => (agg.has(n) ? n : agg.has(`${n}.keyword`) ? `${n}.keyword` : null)).filter(/** @returns {x is string} */ (x) => !!x);
+    if (!counts) return ok[0] || null;
+    return ok.map((n) => [n, counts.get(n.replace(/\.keyword$/, '')) ?? counts.get(n) ?? 0]).filter(([, c2]) => Number(c2) > 0).sort((a, b) => Number(b[1]) - Number(a[1]))[0]?.[0] || null;
+  };
   return { traceField: pick(TRACE), errorField: pick(ERROR) };
 }
+
+export const ERROR_FIELD_CANDIDATES = [...TRACE, ...ERROR];
 
 /** Mask what identifies people or objects, keep the shape of the message. @param {string} s */
 export function maskText(s) {

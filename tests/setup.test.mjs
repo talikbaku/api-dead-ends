@@ -376,3 +376,9 @@ test('error texts: masking and grouping through traces (mock search)', async () 
   assert.equal(r.endpoints[0].messages.length, 1, 'same message with different IDs is grouped');
   assert.deepEqual([r.endpoints[0].messages[0].text, r.endpoints[0].messages[0].count, r.endpoints[0].messages[0].firstSeen], ['Order {uuid} has active tx', 5, '2026-11-26T05:00:00Z']);
 });
+
+test('error fields: the field this service fills wins over an empty one', async () => {
+  const { pickErrorFields } = await import('../src/adapters/errortexts.mjs');
+  const agg = new Set(['trace.id', 'x-trace-id', 'error.message.keyword']);
+  assert.equal(pickErrorFields(agg, new Map([['trace.id', 0], ['x-trace-id', 900], ['error.message', 50]])).traceField, 'x-trace-id');
+});

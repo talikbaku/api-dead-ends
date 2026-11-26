@@ -7,7 +7,7 @@
 
 import { loadPlaywright } from '../probe.mjs';
 import { collect } from './elasticsearch.mjs';
-import { collectErrors, pickErrorFields } from './errortexts.mjs';
+import { collectErrors, pickErrorFields, ERROR_FIELD_CANDIDATES } from './errortexts.mjs';
 
 const HDR = { 'kbn-xsrf': 'true', 'content-type': 'application/json', 'x-elastic-internal-origin': 'Kibana' };
 const CANDIDATES = {
@@ -77,7 +77,12 @@ export async function fetchKibana(o) {
     /** @type {any} */
     let errors = null;
     if (o.errors) {
-      const ef = pickErrorFields(agg);
+      // which trace / error fields does this service fill? (counts only)
+      const cands = ERROR_FIELD_CANDIDATES.filter((n) => agg.has(n) || agg.has(`${n}.keyword`));
+      const pr = await search({ size: 0, query: { bool: { filter: [{ match_phrase: { [svcField]: o.service } }, { range: { [timeField]: { gte: `now-${o.errorHours ?? 24}h` } } }] } },
+        aggs: { has: { filters: { filters: Object.fromEntries(cands.map((n) => [n, { exists: { field: n } }])) } } } });
+      const ec = new Map(Object.entries(pr.aggregations.has.buckets).map(([n, b]) => [n, /** @type {any} */ (b).doc_count]));
+      const ef = pickErrorFields(agg, ec);
       const traceField = o.traceField || ef.traceField, errorField = o.errorField || ef.errorField;
       if (!traceField || !errorField) log('Error texts skipped: no trace or error-message field found (pass --trace-field / --error-field).');
       else {
