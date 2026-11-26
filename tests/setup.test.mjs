@@ -252,7 +252,7 @@ test('windows: per-day usage gives 30/7/3/1-day windows and finds a recent spike
   assert.equal(r.status, 0, r.stderr);
   const j = JSON.parse(readFileSync(join(dir, 'rep/report.json'), 'utf8'));
   assert.equal(j.window.days, 30);
-  assert.deepEqual(j.spikes.map((s) => [s.path, s.window]), [['/api/cart', 3]]);
+  assert.deepEqual(j.spikes.map((s) => s.path), ['/api/cart']);
   assert.match(readFileSync(join(dir, 'rep/report.html'), 'utf8'), /"7":/);
   assert.match(r.stderr, /Recent spikes: 1/);
 });

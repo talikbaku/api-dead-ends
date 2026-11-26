@@ -11,14 +11,14 @@ export const WINDOWS = [null, 7, 3, 1];
 /**
  * @param {import('./usage.mjs').UsageRow[]} rows  rows with a `day` (rows without one belong to every window)
  * @param {Parameters<typeof classify>[1]} spec
- * @param {Parameters<typeof classify>[2] & { now?: number }} [opt]
+ * @param {Parameters<typeof classify>[2] & { now?: number, includeToday?: boolean }} [opt]
  */
 export function computeWindows(rows, spec, opt = {}) {
   let days = [...new Set(rows.map((r) => r.day).filter(Boolean))].sort();
   if (!days.length) return null;
   // Today's data is partial (an export runs mid-day): leave it out so "1 day" is a whole day.
   const today = (opt.now ? new Date(opt.now) : new Date()).toISOString().slice(0, 10);
-  const droppedToday = days.length > 1 && days.at(-1) === today;
+  const droppedToday = !opt.includeToday && days.length > 1 && days.at(-1) === today;
   if (droppedToday) { days = days.slice(0, -1); rows = rows.filter((r) => r.day !== today); }
   const first = days[0];
   const last = /** @type {string} */ (days.at(-1));
@@ -46,19 +46,27 @@ export function computeWindows(rows, spec, opt = {}) {
     s.calls[i] += r.calls;
     s.e5[i] += sumStatus(r.status, (c) => c >= 500);
   }
-  // Recent spikes: over the error threshold in a short window but not over the whole period.
+  // Recent spikes: over the threshold in a short window AND at least 3× the share of the days before it.
+  // (Comparing with the days before — not with the whole period — keeps a big incident from hiding itself.)
   const spikes = [];
-  for (const n of ['3', '1', '7']) {
+  for (const n of ['1', '3', '7']) {
     const w = windows[n];
     if (!w) continue;
+    const from = shiftDay(last, -(Number(n) - 1));
+    const acc = new Map();
+    for (const r of rows) if (r.day && r.day < from) addRow(acc, { ...r, day: undefined }, { template: false });
+    if (!acc.size) continue;
+    const before = classify([...acc.values()], spec, { ...opt, days: total - Number(n) });
     for (const e of w.serverErrors) {
-      if (all.serverErrors.some((x) => x.method === e.method && x.path === e.path)) continue;
       if (spikes.some((x) => x.method === e.method && x.path === e.path)) continue;
-      const whole = all.endpoints.find((x) => x.method === e.method && x.path === e.path);
-      spikes.push({ method: e.method, path: e.path, window: Number(n), calls: e.calls, errors5xx: e.errors5xx,
-        share: e.errors5xx / e.calls, wholeShare: whole && whole.calls ? whole.errors5xx / whole.calls : 0 });
+      const b = before.endpoints.find((x) => x.method === e.method && x.path === e.path);
+      const share = e.errors5xx / e.calls;
+      const beforeShare = b && b.calls ? b.errors5xx / b.calls : 0;
+      if (share < 3 * beforeShare) continue;
+      spikes.push({ method: e.method, path: e.path, window: Number(n), calls: e.calls, errors5xx: e.errors5xx, share, wholeShare: beforeShare, before: 'days before the window' });
     }
   }
+  spikes.sort((a, b) => b.errors5xx - a.errors5xx);
   return { days, windows, series, spikes, droppedToday };
 }
 

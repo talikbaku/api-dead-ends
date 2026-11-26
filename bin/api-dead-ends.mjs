@@ -100,7 +100,7 @@ try {
     source: { type: 'string' }, services: { type: 'string' }, routes: { type: 'string' }, access: { type: 'string' }, ai: { type: 'string' },
     files: { type: 'string' }, logs: { type: 'string' }, dir: { type: 'string' }, 'log-name': { type: 'string' },
     response: { type: 'string' }, daily: { type: 'boolean' }, html: { type: 'boolean' },
-    duplicates: { type: 'string' }, reference: { type: 'string' }, 'dup-window': { type: 'string' },
+    duplicates: { type: 'string' }, reference: { type: 'string' }, 'include-today': { type: 'boolean' }, 'dup-window': { type: 'string' },
     pages: { type: 'string' }, 'api-host': { type: 'string' }, login: { type: 'boolean' }, headed: { type: 'boolean' }, probe: { type: 'string' }, 'slow-ms': { type: 'string' }, 'error-min': { type: 'string' }, 'error-share': { type: 'string' }, title: { type: 'string' },
   },
   });
@@ -167,6 +167,7 @@ Writes report.md, report.json and report.html (with --out), or prints Markdown /
   --days N          window length when the data has no dates     --rare N         fewer calls = rare (default 100)
   --error-share P   server-error finding: 5xx ≥ P% (default 1)    --error-min N    … and ≥ N responses (default 10)
   --probe F         add probe.json                                 --duplicates F   add duplicates.json
+  --include-today   keep today's partial day in the windows (an incident in progress)
   --baseline F --fail-on new-shadow,deprecated-growth   CI mode (exit 1)   --write-baseline F   save the current shadow list`,
   spec: `api-dead-ends spec from-routes <routes.txt|json> [--title T] [-o openapi.json]
 api-dead-ends spec from-next <next.js dir> [--title T] [-o openapi.json]
@@ -364,9 +365,9 @@ try {
     for (const x of failOn || []) if (!['new-shadow', 'deprecated-growth'].includes(x)) fail(`--fail-on: unknown check "${x}". Use: new-shadow, deprecated-growth`);
     const cOpt = { rare: num('rare', 1, 1e9), keepPreflight: v['keep-preflight'], errorMin: num('error-min', 1, 1e9), errorShare: share === undefined ? undefined : share / 100 };
     // With per-day data the window is what the data covers; --days only applies to tables without dates.
-    const win = hasDays ? computeWindows(dailyRows, spec, cOpt) : null;
+    const win = hasDays ? computeWindows(dailyRows, spec, { ...cOpt, includeToday: v['include-today'] }) : null;
     if (win && v.days && Number(v.days) !== win.windows.all.window.days) console.error(`Note: the data covers ${win.windows.all.window.days} days; --days ${v.days} is ignored for per-day data.`);
-    if (win?.droppedToday) console.error('Note: today is incomplete and left out of the windows.');
+    if (win?.droppedToday) console.error('Note: today is incomplete and left out of the windows (add --include-today to look at an incident in progress).');
     const r = win ? win.windows.all : classify(rows, spec, { ...cOpt, days: num('days', 1, 3650) });
     const extra = { spikes: win?.spikes || [], toolVersion: VERSION,
       probe: v.probe ? JSON.parse(await readFile(v.probe, 'utf8')) : null,
