@@ -5,7 +5,7 @@ description: Find broken (5xx), unused ("not seen"), undocumented (shadow) and d
 
 # API health with api-dead-ends
 
-The `ade` MCP server gives you tools that only read files inside the current directory: `detect_project`, `setup_plan`, `build_query`, `spec_from_routes`, `analyze_usage`. The one exception: `spec_from_routes` with `out` writes a new .json file (never overwrites). The same features exist as a CLI: `node ${CLAUDE_PLUGIN_ROOT}/bin/api-dead-ends.mjs --help`.
+The `ade` MCP server gives you read tools (`detect_project`, `setup_plan`, `build_query`, `spec_from_routes`, `analyze_usage`) and two write tools: `init` (writes the config and `.api-dead-ends/NEXT-STEPS.md`, never overwrites) and `write_report` (report.md/json/html under `.api-dead-ends/`). `spec_from_routes` with `out` writes a new .json file. Ask the human before using a write tool. The same features exist as a CLI: `node ${CLAUDE_PLUGIN_ROOT}/bin/api-dead-ends.mjs --help`.
 
 ## Setup in a repository
 1. `detect_project` → show the user the services, frameworks and specs found. Ask which traffic source they have (Elasticsearch/Kibana, Datadog, Prometheus, Loki, App Insights, CloudWatch, New Relic, Dynatrace, Splunk, access log files, CSV, or nothing).

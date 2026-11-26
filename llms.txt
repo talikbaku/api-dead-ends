@@ -1,6 +1,6 @@
 # api-dead-ends
 
-> Read-only CLI + MCP server + Claude Code plugin. Compares an OpenAPI spec (or a framework route list) with real API traffic aggregated from logs/APM/metrics, and lists: endpoints with server errors (5xx share), client errors (4xx), undocumented (shadow) endpoints, endpoints not called in the window (with confidence), deprecated endpoints still called. Numbers are computed by code, not by an LLM. "Not called" is a hint, never proof that an endpoint is dead.
+> Local CLI (never changes code) + MCP server + Claude Code plugin. Compares an OpenAPI spec (or a framework route list) with real API traffic aggregated from logs/APM/metrics, and lists: endpoints with server errors (5xx share), client errors (4xx), undocumented (shadow) endpoints, endpoints not called in the window (with confidence), deprecated endpoints still called. Numbers are computed by code, not by an LLM. "Not called" is a hint, never proof that an endpoint is dead.
 
 ## Install
 - CLI: `npx api-dead-ends init` (Node.js >= 20, 22+ recommended, zero dependencies)
@@ -14,7 +14,12 @@
 - `convert <source> <file>` — saved response → usage table (method,path,calls,first_seen,last_seen,status)
 - `spec from-routes <routes.txt|json>` — OpenAPI from rails/flask/django/spring/gin/echo/laravel/express route lists
 - `report --usage usage.csv --spec openapi.json --days N --out dir/` — report.md + report.json; `--json` prints JSON; `--baseline` + `--fail-on new-shadow,deprecated-growth` for CI
-- `mcp` — stdio MCP server; tools: detect_project, setup_plan, build_query, spec_from_routes, analyze_usage
+- `report` also writes report.html; with `convert --daily` it shows 30/7/3/1-day windows and recent 5xx spikes
+- `probe <url> [--spec F]` — browser visit (Playwright): duplicate/broken/slow API calls per page; human-run only
+- `convert accesslog … --duplicates dup.json` — repeated POST/PATCH from one client; `report --duplicates dup.json`
+- `coverage --usage app.csv --reference ingress.csv` — endpoints not logged by the app; `logging-check` — "do not log" settings in code
+- `spec from-next <dir>` — Next.js routes
+- `mcp` — stdio MCP server; read tools: detect_project, setup_plan, build_query, spec_from_routes, analyze_usage; write tools: init, write_report (only config + .api-dead-ends/)
 - `utcp` — prints a UTCP manual with the same tools (experimental)
 
 ## Rules for agents

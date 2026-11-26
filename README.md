@@ -9,7 +9,7 @@
 
 **Find API endpoints that fail, are never called, or are missing from your OpenAPI spec — using the logs and metrics you already have.** CLI, MCP server, UTCP manual and Claude Code plugin.
 
-OpenAPI vs real traffic: compares your spec (or your framework's route list) with request counts from your logs, APM or metrics, and finds unused API endpoints, endpoints not called in production, shadow APIs and zombie APIs — an API inventory from facts. Local, read-only, zero dependencies, any language.
+OpenAPI vs real traffic: compares your spec (or your framework's route list) with request counts from your logs, APM or metrics, and finds unused API endpoints, endpoints not called in production, shadow APIs and zombie APIs — an API inventory from facts. Local, never changes your code, zero dependencies, any language.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/talikbaku/api-dead-ends/main/docs/media/report-dark.svg">
@@ -19,7 +19,7 @@ OpenAPI vs real traffic: compares your spec (or your framework's route list) wit
 ## 🤖 Don't want to read? Copy this into Claude Code or Cursor
 
 ```text
-Set up api-dead-ends for me (https://github.com/talikbaku/api-dead-ends) — a read-only CLI and MCP server that compares my OpenAPI spec (or route list) with real traffic and lists endpoints with errors, endpoints not called in the window, and undocumented (shadow) endpoints.
+Set up api-dead-ends for me (https://github.com/talikbaku/api-dead-ends) — a local CLI and MCP server (never changes code) that compares my OpenAPI spec (or route list) with real traffic and lists endpoints with errors, endpoints not called in the window, and undocumented (shadow) endpoints.
 1. Check Node.js >= 20 (22+ recommended); tell me how to install it if missing.
 2. Claude Code: /plugin marketplace add talikbaku/api-dead-ends then /plugin install api-dead-ends@api-dead-ends-marketplace
    Cursor or another MCP client: add server "ade" = {"command":"npx","args":["-y","api-dead-ends@0.2.0","mcp"]}
@@ -36,6 +36,9 @@ Short docs: https://github.com/talikbaku/api-dead-ends/blob/main/llms.txt
 | ! | **Undocumented (shadow)** — called in production, missing from the spec | `GET /api/v1/products/{id}/reviews` — 34,507 calls |
 | ○ | **Not called** in the window — with the window length and a confidence level | `POST /orders/{id}/repeat` — 0 calls in 30 days |
 | ↓ | **Deprecated but still called** | `GET /legacy/catalog` — 6,826 calls |
+| ▲ | **Recent spikes** — over the 5xx threshold in the last 7/3/1 days, hidden by the period average | `POST /payments` — 2.6% 5xx in 3 days vs 0.3% in 30 |
+| ⧉ | **Duplicates** — the same request several times per page load (`probe`), repeated POST/PATCH from one client (access logs) | `GET /api/me` ×3 on `/` |
+| ∅ | **Not logged** — endpoints the ingress/APM sees but app logs miss (`coverage`), and "do not log" settings in code (`logging-check`) | `location /health { access_log off; }` |
 
 > [!NOTE]
 > "Not called" is a hint, not a verdict: the endpoint may be used monthly, by a partner, by an old app version — or its traffic may not be logged. api-dead-ends recommends; a human decides.
@@ -78,10 +81,15 @@ npx api-dead-ends report --usage usage.csv --spec openapi.json --days 15 --out r
 
 **No logs?** Today the tool needs some traffic data — at least nginx/Apache access logs. Options: [no logs](docs/MORE.md#no-logs-at-all).
 
+**Open the HTML report:** `report --out` also writes `report.html` — tabs per finding, and 30/7/3/1-day windows when the usage table has days (`convert … --daily`).
+
+**Front end:** `npx api-dead-ends probe https://your-site --spec openapi.json` opens the site in a browser (needs Playwright) and finds calls sent several times per page, broken and slow calls.
+
 **No OpenAPI spec?** Ask your framework for its route list (`rails routes`, `flask routes`, Spring `/actuator/mappings`, Gin debug output, Laravel `route:list`…):
 
 ```bash
 npx api-dead-ends spec from-routes routes.txt -o openapi.json
+npx api-dead-ends spec from-next ./web -o openapi.json        # Next.js app/ and pages/api
 ```
 
 ## 📊 Example report
@@ -130,16 +138,16 @@ From the synthetic demo in [`examples/`](examples/) — [full report](examples/r
 { "mcpServers": { "ade": { "command": "npx", "args": ["-y", "api-dead-ends@0.2.0", "mcp"] } } }
 ```
 
-Five tools, reading only inside the working directory: `detect_project`, `setup_plan`, `build_query`, `spec_from_routes`, `analyze_usage`.
+Seven tools: `detect_project`, `setup_plan`, `build_query`, `spec_from_routes`, `analyze_usage` read inside the working directory; `init` and `write_report` write only `api-dead-ends.config.json` and files under `.api-dead-ends/` (never your code, never an existing file outside it).
 
-**UTCP** (experimental): no server needed — `npx api-dead-ends utcp` prints a UTCP manual with the same five tools that call the CLI directly. Register it as a `cli` call template in any UTCP client.
+**UTCP** (experimental): no server needed — `npx api-dead-ends utcp` prints a UTCP manual with the read-only tools (detect, plan, query, spec, analyze) that call the CLI directly. Register it as a `cli` call template in any UTCP client.
 
 Any other chat assistant: paste [`prompts/any-ai.md`](prompts/any-ai.md) with your `report.json`. Details: [docs/MCP.md](docs/MCP.md).
 
 ## 🛡️ Safe by default
 
 - **Aggregates only.** The tool reads counts per method + path + status. Raw log lines, IPs, tokens and request bodies never enter it; IDs and token-like path segments are folded to `{id}`, query strings dropped.
-- **No network.** It prints queries; you run them with your own access. The only exception is `fetch elasticsearch` with your read-only key.
+- **No network by default.** It prints queries; you run them with your own access. Exceptions you start yourself: `fetch elasticsearch` (your read-only key) and `probe <url>` (a browser on the site you name).
 - **Nothing changes your code.** `init` writes a config and next steps, never overwrites, and keeps raw exports out of git.
 - **Traffic is untrusted.** Paths from logs are escaped in reports and in MCP output, so they can't inject Markdown or instructions. [docs/SECURITY.md](docs/SECURITY.md)
 

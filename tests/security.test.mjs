@@ -115,3 +115,21 @@ test('report.html: traffic cannot inject markup or script; no external resources
   assert.doesNotMatch(html, /\bsrc=["']?https?:|href=["']?https?:|@import|url\(/i);
   assert.match(html, /Content-Security-Policy/);
 });
+
+test('mcp: init writes setup files once; write_report writes only under .api-dead-ends/', async () => {
+  const repo = makeRepo();
+  writeFileSync(join(repo, 'u.csv'), 'method,path,calls,status,day\nGET,/api/products,100,200:100,2026-11-01\nGET,/api/products,100,200:90|500:10,2026-11-02\n');
+  const r = await mcp(repo, [
+    ['init', { source: 'accesslog', services: 'gateway' }],
+    ['init', { source: 'accesslog', services: 'gateway' }],
+    ['write_report', { out: '.api-dead-ends/gateway/report', usage: 'u.csv', spec: 'services/gateway/openapi.json' }],
+    ['write_report', { out: 'reports', usage: 'u.csv', spec: 'services/gateway/openapi.json' }],
+  ]);
+  assert.equal(r[1].isError, false);
+  assert.ok(existsSync(join(repo, '.api-dead-ends/NEXT-STEPS.md')));
+  assert.equal(r[2].isError, true, 'second init does not overwrite');
+  assert.equal(r[3].isError, false);
+  assert.ok(existsSync(join(repo, '.api-dead-ends/gateway/report/report.html')));
+  assert.equal(r[4].isError, true, 'outside .api-dead-ends is refused');
+  assert.ok(!existsSync(join(repo, 'reports')));
+});

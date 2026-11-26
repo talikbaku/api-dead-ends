@@ -138,3 +138,15 @@ No. It reads aggregated counts locally and makes no network calls except `fetch 
 
 ### What about shadow APIs and zombie APIs?
 Shadow APIs are the "Undocumented" endpoints. Zombie APIs are usually "Deprecated but still called" or "Not called" endpoints that are still deployed.
+
+## Next.js on Vercel (no logs)
+
+Vercel keeps runtime logs for a short time (about 1 hour on Hobby, 1 day on Pro), so there is no long history to analyse. What works today:
+
+1. **Routes:** `npx api-dead-ends spec from-next . -o openapi.json` — from `app/**/route.*` and `pages/api`.
+2. **Front end:** `npx api-dead-ends probe https://your-app.vercel.app --spec openapi.json` — duplicate, broken and slow API calls per page, and which routes the pages call. Use `--login` for pages behind a login.
+3. **Traffic over time:** send logs somewhere that keeps them — a log drain (Pro) or OpenTelemetry (`@vercel/otel`) to Datadog, Grafana/Loki or Elastic — then pick that source in `init`. Any export with method, path, status and a timestamp also works: `convert csv export.csv --map method=…,path=…,status=…,day=… --daily`.
+
+## Windows, spikes and the HTML report
+
+With `--daily`, `convert` and `fetch` keep one row per day. `report` then computes the whole period and the last 7, 3 and 1 days, lists **recent spikes** (an endpoint over the 5xx threshold in a short window but not over the whole period) and writes `report.html` with a window switcher. Without days, the report covers the whole export and `--days` sets its length.

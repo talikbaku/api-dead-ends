@@ -139,8 +139,49 @@ const VERSION = JSON.parse(await readFile(new URL('../package.json', import.meta
 const cmd0 = pos[0];
 if (Number(process.versions.node.split('.')[0]) < 22 && cmd0 !== 'mcp' && !v.json) process.stderr.write(`Note: Node ${process.versions.node} is end-of-life and misses recent security fixes; Node 22 or 24 is recommended.\n`);
 if (v.version) { console.log(JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')).version); process.exit(0); }
+const CMD_HELP = {
+  query: `api-dead-ends query <source> [--service S] [--days N] [--index P] [--preset P] [--metric M] [--response FILE] [--spec F]
+Prints the aggregation query to run in your tool (nothing is sent anywhere). Sources: elasticsearch, opensearch, datadog,
+datadog-apm, prometheus, loki, appinsights, azure-apim, cloudwatch, athena, bigquery, newrelic, dynatrace, splunk, csv, accesslog.
+  --preset   Prometheus label set: otel, otel-old, spanmetrics, spring, prometheus-net, go-promhttp, express, fastapi, nginx-ingress, traefik, generic
+  --metric   Datadog APM metric, e.g. trace.http.request.hits (Go), trace.servlet.request.hits (Java), trace.express.request.hits (Node)
+  --response where you will save the response; printed hints then use the same file name
+Field overrides: --method-field --path-field --status-field --service-field --time-field --exclude-filter --access-filter`,
+  convert: `api-dead-ends convert <source> <file...> [--spec F] [--daily] [-o usage.csv]
+Turns saved responses into a usage table (method,path,calls,first_seen,last_seen,status[,day]).
+  --spec       keep literal segments of your spec (v1beta1, oauth2…) instead of folding them into {id}
+  --daily      one row per day → 30/7/3/1-day windows and recent spikes in the report
+  --duplicates F [--dup-window 2]   accesslog only: repeated POST/PUT/PATCH/DELETE from the same client
+  --preset / --map / field flags as for query`,
+  fetch: `api-dead-ends fetch elasticsearch --url URL --index P [--service S] [--days N] [--spec F] [--daily] [-o usage.csv]
+Pulls the usage table straight from Elasticsearch/OpenSearch with a read-only key in ES_API_KEY. 3-hour windows, split on timeout.`,
+  report: `api-dead-ends report --usage usage.csv --spec openapi.json [--days N] [--out DIR] [--json]
+Writes report.md, report.json and report.html (with --out), or prints Markdown / JSON.
+  --days N          window length when the data has no dates     --rare N         fewer calls = rare (default 100)
+  --error-share P   server-error finding: 5xx ≥ P% (default 1)    --error-min N    … and ≥ N responses (default 10)
+  --probe F         add probe.json                                 --duplicates F   add duplicates.json
+  --baseline F --fail-on new-shadow,deprecated-growth   CI mode (exit 1)   --write-baseline F   save the current shadow list`,
+  spec: `api-dead-ends spec from-routes <routes.txt|json> [--title T] [-o openapi.json]
+api-dead-ends spec from-next <next.js dir> [--title T] [-o openapi.json]
+Builds a minimal OpenAPI spec from your framework's route list (rails routes, flask routes, Spring /actuator/mappings,
+Gin debug lines, Laravel route:list --json, express-list-endpoints, Django show_urls, "METHOD /path" lines) or Next.js route files.`,
+  probe: `api-dead-ends probe <url> [--pages 20] [--login] [--headed] [--slow-ms 2000] [--spec F] [--out DIR]
+Opens the site in Chromium (needs Playwright: npm i -D playwright && npx playwright install chromium) and records the API calls
+each page makes: the same request several times per page load, 4xx/5xx/network/CORS failures, slow calls, and — with --spec —
+which documented endpoints the pages call. Navigation only (no clicks or forms), same origin, logout/delete-like links skipped.
+  --login   opens a visible browser; log in, then press Enter in the terminal. The session is not saved.`,
+  coverage: `api-dead-ends coverage --usage app-logs.csv --reference ingress.csv [--spec F] [--out DIR] [--json]
+"Not logged": endpoints the reference source (ingress, load balancer, APM) sees but the application logs miss or under-count.`,
+  'logging-check': `api-dead-ends logging-check [dir] [--json]
+Static scan for settings that switch request logging off (nginx access_log off, ingress enable-access-log, morgan skip,
+pino-http ignore, fastify disableRequestLogging, gin SkipPaths, echo Skipper, uvicorn --no-access-log, lograge ignore,
+Next.js middleware matcher, Spring excludePathPatterns, Serilog filters). Unknown frameworks are reported as unknown.`,
+  detect: `api-dead-ends detect [dir]   Read-only scan: services, languages, frameworks, specs, route files, observability hints (JSON).`,
+  mcp: `api-dead-ends mcp   Stdio MCP server. Tools: detect_project, setup_plan, build_query, spec_from_routes, analyze_usage, write_report.`,
+  utcp: `api-dead-ends utcp   Prints a UTCP manual (experimental) whose tools call this CLI directly.`,
+};
 if (v.help || !cmd0) {
-  if (cmd0 === 'init') console.log(INIT_HELP); else console.log(HELP);
+  if (cmd0 === 'init') console.log(INIT_HELP); else if (cmd0 && CMD_HELP[cmd0]) console.log(CMD_HELP[cmd0]); else console.log(HELP);
   process.exitCode = cmd0 || v.help ? 0 : 2;
   await new Promise((r) => process.stdout.write('', r));
   process.exit(process.exitCode);

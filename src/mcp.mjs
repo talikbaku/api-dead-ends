@@ -15,6 +15,11 @@ import { loadSpec, literalSegments } from './spec.mjs';
 import { isIdSegment } from './template.mjs';
 import { parseUsage, addRow } from './usage.mjs';
 import { classify } from './classify.mjs';
+import { computeWindows } from './windows.mjs';
+import { toMarkdown, toJson } from './report.mjs';
+import { toHtml } from './html.mjs';
+import { runInit } from './setup/wizard.mjs';
+import { PassThrough } from 'node:stream';
 import * as es from './adapters/elasticsearch.mjs';
 import { datadog, appinsights, prometheus, loki, cloudwatch } from './adapters/others.mjs';
 import { csv, splunk, datadogApm, newrelic, dynatrace, athena, bigquery, azureApim, accesslog } from './adapters/more.mjs';
@@ -40,6 +45,27 @@ const ADAPTERS = {
 
 const str = (d) => ({ type: 'string', description: d });
 const TOOLS = [
+  {
+    name: 'init',
+    title: 'Write the setup files',
+    description: 'Non-interactive `init`: writes api-dead-ends.config.json and .api-dead-ends/NEXT-STEPS.md for the chosen source. Never overwrites existing files and never changes code. Ask the human which source to use first.',
+    inputSchema: { type: 'object', required: ['source'], properties: {
+      source: { type: 'string', enum: SOURCES.map((s) => s.id) }, services: str('Comma-separated service names or dirs (default: all)'),
+      days: { type: 'number' }, index: str('Elasticsearch index pattern'),
+    } },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  },
+  {
+    name: 'write_report',
+    title: 'Write report files',
+    description: 'Same input as analyze_usage; writes report.md, report.json and report.html into a folder under .api-dead-ends/ (git-ignored by init). Returns the paths and the summary.',
+    inputSchema: { type: 'object', required: ['out'], properties: {
+      out: str('Folder under .api-dead-ends/, e.g. .api-dead-ends/orders/report'),
+      spec: str('OpenAPI/Swagger JSON path'), routes: str('Or a framework route list'), usage: str('Usage table path'),
+      response: str('Or a saved source response'), source: { type: 'string', enum: Object.keys(ADAPTERS) }, days: { type: 'number' },
+    } },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  },
   {
     name: 'detect_project',
     title: 'Scan a repository',
@@ -117,6 +143,24 @@ async function readInside(cwd, p) {
   return readFile(f, 'utf8');
 }
 
+
+/** Spec (or route list) + usage (or saved response), all confined to cwd. @param {string} cwd @param {any} a */
+async function loadInputs(cwd, a) {
+  if (!a.spec && !a.routes) throw new Error('pass spec (OpenAPI JSON) or routes (route list file)');
+  const spec = loadSpec(a.spec ? parseJson(await readInside(cwd, a.spec)) : routesToOpenApi(parseRoutes(await readInside(cwd, a.routes))));
+  const keep = literalSegments(spec, isIdSegment);
+  let dailyRows;
+  if (a.usage) dailyRows = parseUsage(await readInside(cwd, a.usage), { keep, daily: true });
+  else if (a.response && Object.hasOwn(ADAPTERS, a.source)) {
+    const acc = new Map();
+    for (const r of ADAPTERS[a.source].parse(await readInside(cwd, a.response), { daily: true })) addRow(acc, r, { keep, daily: true });
+    dailyRows = [...acc.values()];
+  } else throw new Error('pass usage, or response + source');
+  const merged = new Map();
+  for (const r of dailyRows) addRow(merged, { ...r, day: undefined }, { template: false });
+  return { spec, rows: [...merged.values()], dailyRows };
+}
+
 /** @param {string} name @param {any} a */
 async function callTool(name, a = {}) {
   const cwd = process.cwd();
@@ -160,16 +204,7 @@ async function callTool(name, a = {}) {
     return { routes: routes.length, openapi: doc };
   }
   if (name === 'analyze_usage') {
-    if (!a.spec && !a.routes) throw new Error('pass spec (OpenAPI JSON) or routes (route list file)');
-    const spec = loadSpec(a.spec ? parseJson(await readInside(cwd, a.spec)) : routesToOpenApi(parseRoutes(await readInside(cwd, a.routes))));
-    const keep = literalSegments(spec, isIdSegment);
-    let rows;
-    if (a.usage) rows = parseUsage(await readInside(cwd, a.usage), { keep });
-    else if (a.response && Object.hasOwn(ADAPTERS, a.source)) {
-      const acc = new Map();
-      for (const r of ADAPTERS[a.source].parse(await readInside(cwd, a.response), {})) addRow(acc, r, { keep });
-      rows = [...acc.values()];
-    } else throw new Error('pass usage, or response + source');
+    const { spec, rows } = await loadInputs(cwd, a);
     const r = classify(rows, spec, { days: a.days });
     const top = a.top || 20;
     const share = (/** @type {number} */ x, /** @type {number} */ y) => (y ? Math.round((x / y) * 10000) / 100 : 0);
@@ -185,6 +220,29 @@ async function callTool(name, a = {}) {
       deprecatedInUse: r.endpoints.filter((e) => e.class === 'deprecated_in_use').slice(0, top).map(ep),
       note: 'not_seen means no calls in this window: it may be rare or not logged. Recommend, never delete automatically.',
     };
+  }
+  if (name === 'init') {
+    const out = new PassThrough(), err = new PassThrough();
+    let text = ''; out.on('data', (d) => { text += d; }); err.resume();
+    const code = await runInit({ cwd, flags: { yes: true, json: true, source: a.source, services: a.services, days: a.days, index: a.index }, input: new PassThrough(), out, err });
+    if (code !== 0) throw new Error('init failed');
+    const plan = JSON.parse(text);
+    return { written: plan.files, steps: plan.steps };
+  }
+  if (name === 'write_report') {
+    const target = await inside(cwd, a.out);
+    const rel = relative(await realpath(cwd), target);
+    if (!(rel === '.api-dead-ends' || rel.startsWith('.api-dead-ends/') || rel.startsWith('.api-dead-ends\\'))) throw new Error('out must be a folder under .api-dead-ends/');
+    const { spec, rows, dailyRows } = await loadInputs(cwd, a);
+    const r = classify(rows, spec, { days: a.days });
+    const win = dailyRows.some((x) => x.day) ? computeWindows(dailyRows, spec, { days: a.days }) : null;
+    const extra = { spikes: win?.spikes || [], toolVersion: INFO.version };
+    await mkdir(target, { recursive: true });
+    await inside(cwd, a.out); // re-check after mkdir
+    await writeFile(resolve(target, 'report.md'), toMarkdown(r, extra));
+    await writeFile(resolve(target, 'report.json'), toJson(r, extra));
+    await writeFile(resolve(target, 'report.html'), toHtml(r, { ...extra, win }));
+    return { written: ['report.md', 'report.json', 'report.html'].map((f) => `${a.out.replace(/\/$/, '')}/${f}`), totals: r.totals, spikes: extra.spikes.length };
   }
   throw new Error(`unknown tool ${name}`);
 }

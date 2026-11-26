@@ -7,7 +7,7 @@ Back to [README](../README.md).
 The numbers never depend on AI. If you want an assistant to help read results and find causes in code:
 
 - **Any chat assistant:** paste `prompts/any-ai.md` together with `report.json`.
-- **MCP** (Claude Code, Cursor, VS Code, Windsurf, Claude Desktop): `api-dead-ends mcp` is a read-only stdio server with tools `detect_project`, `setup_plan`, `build_query`, `spec_from_routes`, `analyze_usage`.
+- **MCP** (Claude Code, Cursor, VS Code, Windsurf, Claude Desktop): `api-dead-ends mcp` is a stdio server. Read tools: `detect_project`, `setup_plan`, `build_query`, `spec_from_routes`, `analyze_usage`. Write tools: `init` (config + next steps, never overwrites) and `write_report` (report files under `.api-dead-ends/`).
 
   ```json
   { "mcpServers": { "ade": { "command": "npx", "args": ["-y", "api-dead-ends@0.2.0", "mcp"] } } }
@@ -39,6 +39,10 @@ The numbers never depend on AI. If you want an assistant to help read results an
 | `build_query` | the query to run in your observability tool | no |
 | `spec_from_routes` | minimal OpenAPI from a framework route list | only with `out`: a new `.json` inside the working directory |
 | `analyze_usage` | report as JSON: server errors (with share), below-threshold 5xx, client errors, undocumented, not called, deprecated in use | no |
+| `init` | non-interactive setup for a source | `api-dead-ends.config.json` + `.api-dead-ends/` (never overwrites) |
+| `write_report` | report.md / .json / .html (with windows and spikes when the usage has days) | only under `.api-dead-ends/` |
+
+`probe` is deliberately **not** an MCP tool: it opens a browser and makes network requests, so a human runs it.
 
 All paths must stay inside the server's working directory (symlinks resolved). Calls are processed one at a time, in order. Protocol: answers `initialize` (2025-11-25 and earlier) and `server/discover` with per-request `_meta` (2026-07-28).
 
