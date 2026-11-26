@@ -104,3 +104,11 @@ test('accesslog: streams plain and .gz files and aggregates', async () => {
   assert.equal(u.calls, 3);
   assert.equal(u.status.get('500'), 1);
 });
+
+test('victorialogs: LogsQL stats JSON lines, daily buckets, custom fields', async () => {
+  const { victorialogs } = await import('../src/adapters/others.mjs');
+  const text = '{"_time":"2026-11-24T00:00:00Z","method":"GET","path":"/api/links/42","status":"200","calls":"120"}\n{"_time":"2026-11-25T00:00:00Z","method":"POST","path":"/api/links","status":"500","calls":"3"}\n';
+  const rows = victorialogs.parse(text, { daily: true });
+  assert.deepEqual(rows.map((r) => [r.method, r.path, r.calls, r.status, r.day]), [['GET', '/api/links/42', 120, '200:120', '2026-11-24'], ['POST', '/api/links', 3, '500:3', '2026-11-25']]);
+  assert.match(victorialogs.query({ service: 'kong', days: 30, daily: true }), /_time:30d container_name:kong .*stats by \(_time:1d, method, path, status\) count\(\) calls/);
+});

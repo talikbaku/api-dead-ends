@@ -50,7 +50,7 @@ Short docs: https://github.com/talikbaku/api-dead-ends/blob/main/llms.txt
 - **CI fails only on what's new** — a new undocumented endpoint or growing use of a deprecated one. Never on "not called".
 
 **Verified on real production data:** Elasticsearch / Kibana / OpenSearch.
-**Built from vendor docs, feedback welcome:** Datadog APM & Logs · Prometheus / Thanos / Mimir · Loki · App Insights · CloudWatch · Athena · BigQuery · New Relic · Dynatrace · Splunk · nginx / Apache / JSON access logs · any CSV
+**Built from vendor docs, feedback welcome:** Datadog APM & Logs · Prometheus / Thanos / Mimir / VictoriaMetrics · Loki · VictoriaLogs · App Insights · CloudWatch · Athena · BigQuery · New Relic · Dynatrace · Splunk · nginx / Apache / JSON access logs · any CSV
 
 ```mermaid
 flowchart LR

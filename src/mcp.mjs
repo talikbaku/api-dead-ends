@@ -22,7 +22,7 @@ import { runInit } from './setup/wizard.mjs';
 import { PassThrough } from 'node:stream';
 import { writeSafe } from './safewrite.mjs';
 import * as es from './adapters/elasticsearch.mjs';
-import { datadog, appinsights, prometheus, loki, cloudwatch } from './adapters/others.mjs';
+import { datadog, appinsights, prometheus, loki, cloudwatch, victorialogs } from './adapters/others.mjs';
 import { csv, splunk, datadogApm, newrelic, dynatrace, athena, bigquery, azureApim, accesslog } from './adapters/more.mjs';
 
 const MODERN = ['2026-07-28'];
@@ -40,7 +40,7 @@ const INSTRUCTIONS = 'Find broken, unused and undocumented API endpoints from ag
 /** @type {Record<string, { query: (o: any) => string, parse: (t: string, o?: any) => any[] }>} */
 const ADAPTERS = {
   elasticsearch: { query: es.queryText, parse: es.parse }, opensearch: { query: es.queryText, parse: es.parse },
-  datadog, 'datadog-apm': datadogApm, prometheus, loki, appinsights, 'azure-apim': azureApim, cloudwatch, athena, bigquery,
+  datadog, 'datadog-apm': datadogApm, prometheus, loki, victorialogs, appinsights, 'azure-apim': azureApim, cloudwatch, athena, bigquery,
   newrelic, dynatrace, splunk, csv, accesslog,
 };
 

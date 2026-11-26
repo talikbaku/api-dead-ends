@@ -12,6 +12,7 @@ export const SOURCES = [
   { id: 'datadog-apm', label: 'Datadog APM (trace metrics)', verified: false, history: '~15 months', defaultDays: 90, access: ['paste'], env: ['DD_API_KEY', 'DD_APP_KEY'], hint: 'best for "not called": months of history' },
   { id: 'datadog', label: 'Datadog Logs / Spans', verified: false, history: '~15 days', defaultDays: 15, access: ['paste'], env: ['DD_API_KEY', 'DD_APP_KEY'], hint: 'exact paths' },
   { id: 'prometheus', label: 'Prometheus / Thanos / Mimir / VictoriaMetrics', verified: false, history: '15 days (Prometheus) to months (long-term stores)', defaultDays: 30, access: ['paste'], hint: 'HTTP metrics with method/route/status labels' },
+  { id: 'victorialogs', label: 'VictoriaLogs (LogsQL)', verified: false, history: 'log retention', defaultDays: 15, access: ['paste'], hint: 'gateway/nginx JSON access logs' },
   { id: 'loki', label: 'Grafana Loki', verified: false, history: 'log retention', defaultDays: 15, access: ['paste'], hint: 'JSON access logs' },
   { id: 'appinsights', label: 'Azure Application Insights', verified: false, history: '90 days', defaultDays: 90, access: ['paste'], hint: 'requests table' },
   { id: 'cloudwatch', label: 'AWS CloudWatch Logs Insights', verified: false, history: 'as configured', defaultDays: 15, access: ['paste'], hint: 'access logs' },
@@ -54,6 +55,7 @@ export const ROUTE_SOURCES = {
   hono: { kind: 'routes', how: 'console.log(JSON.stringify(app.routes)) → routes.json' },
   koa: { kind: 'routes', how: 'print router.stack as "METHOD path" lines → routes.txt' },
   next: { kind: 'scan', how: 'spec from-next' },
+  nuxt: { kind: 'routes', how: 'a Nuxt front end usually calls another API: list that API\'s routes, or check the pages with: probe <url>; Nuxt server routes (server/api/**) as "METHOD /api/…" lines in routes.txt' },
   aspnetcore: { kind: 'spec', how: 'Swashbuckle: curl -s localhost:5000/swagger/v1/swagger.json > openapi.json' },
   axum: { kind: 'routes', how: 'list routes as "METHOD /path" lines in routes.txt' },
   actix: { kind: 'routes', how: 'list routes as "METHOD /path" lines in routes.txt' },
@@ -69,6 +71,7 @@ export function recommendSource(d) {
   if (o.has('datadog')) return 'datadog-apm';
   if (o.has('elasticsearch')) return 'elasticsearch';
   if (o.has('prometheus')) return 'prometheus';
+  if (o.has('victorialogs')) return 'victorialogs';
   if (o.has('loki')) return 'loki';
   if (o.has('appinsights')) return 'appinsights';
   if (o.has('newrelic')) return 'newrelic';
@@ -160,9 +163,9 @@ export function buildSteps(c) {
       return { service: s.name, steps };
     } else {
       const preset = t === 'prometheus' ? ` --preset ${s.preset || 'generic'}` : '';
-      steps.push({ title: `Print the ${t} query (skip if you already have the response)`, cmd: `${ade} query ${t}${svc}${days}${preset}${specFlag} --response ${dir}/response.json > ${dir}/query.txt` });
+      steps.push({ title: `Print the ${t} query (skip if you already have the response)`, cmd: `${ade} query ${t}${svc}${days}${preset}${t === 'victorialogs' ? ' --daily' : ''}${specFlag} --response ${dir}/response.json > ${dir}/query.txt` });
       steps.push({ title: 'Run the query from query.txt, save the response', note: `save it as ${dir}/response.json${(SOURCES.find((x) => x.id === t)?.env || []).length ? ` — needs ${SOURCES.find((x) => x.id === t)?.env?.join(', ')} in your shell, never in files` : ''}` });
-      steps.push({ title: 'Convert the response', note: `already have an export? cp <your-file> ${dir}/response.json`, cmd: `${ade} convert ${t} ${dir}/response.json${preset}${specFlag}${['prometheus', 'datadog-apm'].includes(t) ? ' --daily' : ''} -o ${usage}` });
+      steps.push({ title: 'Convert the response', note: `already have an export? cp <your-file> ${dir}/response.json`, cmd: `${ade} convert ${t} ${dir}/response.json${preset}${specFlag}${['prometheus', 'datadog-apm', 'victorialogs'].includes(t) ? ' --daily' : ''} -o ${usage}` });
     }
     steps.push({ title: 'Build the report', cmd: `${ade} report --usage ${usage}${specFlag}${days} --out ${dir}/report` });
     return { service: s.name, steps };

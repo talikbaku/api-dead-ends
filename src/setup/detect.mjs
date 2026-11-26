@@ -17,7 +17,7 @@ const MANIFESTS = {
 
 /** Dependency marker (regex on manifest text) → framework id. Order matters inside a language. */
 const FRAMEWORKS = {
-  node: [['nestjs', /"@nestjs\/core"/], ['next', /"next"\s*:/], ['fastify', /"fastify"\s*:/], ['hono', /"hono"\s*:/],
+  node: [['nestjs', /"@nestjs\/core"/], ['next', /"next"\s*:/], ['nuxt', /"nuxt"\s*:/], ['fastify', /"fastify"\s*:/], ['hono', /"hono"\s*:/],
     ['koa', /"koa"\s*:/], ['hapi', /"@hapi\/hapi"/], ['express', /"express"\s*:/]],
   go: [['gin', /gin-gonic\/gin/], ['echo', /labstack\/echo/], ['chi', /go-chi\/chi/], ['fiber', /gofiber\/fiber/], ['gorilla', /gorilla\/mux/]],
   java: [['spring', /spring-boot|org\.springframework/], ['quarkus', /io\.quarkus/], ['micronaut', /io\.micronaut/]],
@@ -35,6 +35,7 @@ const OBS = [
   ['opentelemetry', /opentelemetry/i],
   ['prometheus', /prom-client|prometheus_client|client_golang|micrometer-registry-prometheus|prometheus-net|prometheus-fastapi|\bprometheus\b/i],
   ['elasticsearch', /elasticsearch|kibana|@elastic\/|logstash|filebeat|opensearch/i],
+  ['victorialogs', /victoria-?logs|victorialogs/i],
   ['loki', /\bloki\b|promtail|grafana\/alloy/i],
   ['appinsights', /applicationinsights|ApplicationInsights/],
   ['newrelic', /newrelic/i],

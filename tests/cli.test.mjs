@@ -16,7 +16,7 @@ test('cli: no args → help, exit 2; unknown source → exit 2', () => {
 });
 
 test('cli: query prints runnable text for every source', () => {
-  for (const s of ['elasticsearch', 'opensearch', 'datadog', 'datadog-apm', 'prometheus', 'loki', 'appinsights', 'azure-apim', 'cloudwatch', 'athena', 'bigquery', 'newrelic', 'dynatrace', 'splunk', 'csv', 'accesslog']) {
+  for (const s of ['elasticsearch', 'opensearch', 'datadog', 'datadog-apm', 'prometheus', 'loki', 'victorialogs', 'appinsights', 'azure-apim', 'cloudwatch', 'athena', 'bigquery', 'newrelic', 'dynatrace', 'splunk', 'csv', 'accesslog']) {
     const r = run('query', s, '--service', 'svc', '--days', '7');
     assert.equal(r.status, 0, s);
     assert.ok(r.stdout.length > 50, s);

@@ -239,3 +239,40 @@ function iso(v) {
   const t = Date.parse(/Z|[+-]\d\d:?\d\d$/.test(s) ? s : `${s}Z`);
   return Number.isFinite(t) ? new Date(t).toISOString() : String(v);
 }
+
+// ---------- VictoriaLogs (LogsQL) ----------
+// Typical setup: gateway / nginx JSON access logs shipped by fluent-bit or vector into VictoriaLogs.
+export const victorialogs = {
+  /** @param {Q & { daily?: boolean }} o */
+  query(o = {}) {
+    const m = o.methodField || 'method', p = o.pathField || 'path', s = o.statusField || 'status';
+    const svc = o.service ? ` ${o.serviceField || 'container_name'}:${o.service}` : '';
+    const by = `${o.daily ? '_time:1d, ' : ''}${m}, ${p}, ${s}`;
+    const q = `_time:${o.days ?? 15}d${svc} ${m}:* ${p}:* | stats by (${by}) count() calls`;
+    return [
+      '# VictoriaLogs (LogsQL). Fields: adjust --method-field / --path-field / --status-field to your access-log JSON;',
+      `# the service filter uses --service-field (default container_name). Check one record in VictoriaLogs UI (vmui) first.`,
+      `curl -sS 'http://<victoria-logs>:9428/select/logsql/query' --data-urlencode 'query=${q}' > victorialogs.json`,
+      `# Then: api-dead-ends convert victorialogs victorialogs.json${o.daily ? ' --daily' : ''}${o.methodField ? ` --method-field ${m} --path-field ${p} --status-field ${s}` : ''}`,
+    ].join('\n');
+  },
+  /** JSON lines from /select/logsql/query. @param {string} text @param {Q & { daily?: boolean }} o */
+  parse(text, o = {}) {
+    const m = o.methodField || 'method', p = o.pathField || 'path', s = o.statusField || 'status';
+    const out = [];
+    for (const line of text.split(/\r?\n/)) {
+      const t = line.trim();
+      if (!t) continue;
+      let j;
+      try { j = JSON.parse(t); } catch { continue; }
+      const calls = Number(j.calls ?? j['count(*)'] ?? j.count ?? 0);
+      const path = j[p];
+      if (!calls || !path) continue;
+      const time = j._time ? String(j._time) : '';
+      const st = j[s];
+      out.push({ method: j[m] || '', path: String(path), calls, first_seen: time, last_seen: time, status: st ? `${st}:${calls}` : '', ...(o.daily && time ? { day: time.slice(0, 10) } : {}) });
+    }
+    if (!out.length && text.trim().startsWith('{') === false) throw new Error('VictoriaLogs: expected JSON lines from /select/logsql/query');
+    return out;
+  },
+};

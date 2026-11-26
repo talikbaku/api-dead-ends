@@ -16,7 +16,7 @@ import { writeSafe } from '../src/safewrite.mjs';
 import { computeWindows } from '../src/windows.mjs';
 import { makeBaseline, compareBaseline } from '../src/baseline.mjs';
 import * as es from '../src/adapters/elasticsearch.mjs';
-import { datadog, appinsights, prometheus, loki, cloudwatch } from '../src/adapters/others.mjs';
+import { datadog, appinsights, prometheus, loki, cloudwatch, victorialogs } from '../src/adapters/others.mjs';
 import { csv, splunk, datadogApm, newrelic, dynatrace, athena, bigquery, azureApim, accesslog } from '../src/adapters/more.mjs';
 
 const HELP = `api-dead-ends — find broken, unused and undocumented API endpoints from traffic you already have.
@@ -50,6 +50,7 @@ Commands:
         prometheus                  PromQL, presets via --preset: otel, otel-old, spanmetrics, spring,
                                     prometheus-net, go-promhttp, express, fastapi, nginx-ingress, traefik
         loki                        LogQL over JSON logs
+        victorialogs                LogsQL over JSON access logs (VictoriaLogs)
         appinsights, azure-apim     Azure Application Insights / API Management (KQL)
         cloudwatch, athena          AWS: Logs Insights, ALB logs in Athena
         bigquery                    GCP load balancer logs
@@ -134,7 +135,7 @@ const fields = {
 /** @type {Record<string, { query: (o: any) => string, parse: (t: string, o?: any) => any[] }>} */
 const SOURCES = {
   elasticsearch: { query: es.queryText, parse: es.parse }, opensearch: { query: es.queryText, parse: es.parse },
-  datadog, 'datadog-apm': datadogApm, prometheus, loki, appinsights, 'azure-apim': azureApim, cloudwatch, athena, bigquery,
+  datadog, 'datadog-apm': datadogApm, prometheus, loki, victorialogs, appinsights, 'azure-apim': azureApim, cloudwatch, athena, bigquery,
   newrelic, dynatrace, splunk, csv, accesslog,
 };
 
@@ -145,7 +146,7 @@ if (v.version) { console.log(JSON.parse(await readFile(new URL('../package.json'
 const CMD_HELP = {
   query: `api-dead-ends query <source> [--service S] [--days N] [--index P] [--preset P] [--metric M] [--response FILE] [--spec F]
 Prints the aggregation query to run in your tool (nothing is sent anywhere). Sources: elasticsearch, opensearch, datadog,
-datadog-apm, prometheus, loki, appinsights, azure-apim, cloudwatch, athena, bigquery, newrelic, dynatrace, splunk, csv, accesslog.
+datadog-apm, prometheus, loki, victorialogs, appinsights, azure-apim, cloudwatch, athena, bigquery, newrelic, dynatrace, splunk, csv, accesslog.
   --preset   Prometheus label set: otel, otel-old, spanmetrics, spring, prometheus-net, go-promhttp, express, fastapi, nginx-ingress, traefik, generic
   --metric   Datadog APM metric, e.g. trace.http.request.hits (Go), trace.servlet.request.hits (Java), trace.express.request.hits (Node)
   --response where you will save the response; printed hints then use the same file name
