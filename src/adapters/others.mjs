@@ -144,7 +144,7 @@ export const prometheus = {
       `# Then: api-dead-ends convert prometheus prometheus.json${o.preset ? ` --preset ${o.preset}` : ` --method-field ${c.m} --path-field ${c.p} --status-field ${c.s}`}`,
     ].join('\n');
   },
-  /** Understands an instant vector (query) and a matrix (query_range: daily values → first/last seen). @param {string} text @param {Q & { preset?: string }} o */
+  /** Understands an instant vector (query) and a matrix (query_range: daily values → first/last seen; with o.daily one row per day). @param {string} text @param {Q & { preset?: string, daily?: boolean }} o */
   parse(text, o = {}) {
     const c = promCfg(o);
     const out = [];
@@ -169,7 +169,14 @@ export const prometheus = {
         let method = lab[c.m] ?? '';
         let path = lab[c.p] ?? lab.route ?? lab.path ?? lab.handler ?? lab.uri ?? '';
         if (!method && /^[A-Z]+ \//.test(path)) [method, path] = [path.split(' ')[0], path.slice(path.indexOf(' ') + 1)];
-        out.push({ method, path, calls, first_seen: first, last_seen: last, status: st ? `${st}:${calls}` : '' });
+        if (o.daily && r.values) {
+          for (const [ts, val] of r.values) {
+            const n = Math.round(Number(val));
+            if (!(Number(val) > 0.5) || !n) continue;
+            const t = new Date(Number(ts) * 1000).toISOString();
+            out.push({ method, path, calls: n, first_seen: t, last_seen: t, day: t.slice(0, 10), status: st ? `${st}:${n}` : '' });
+          }
+        } else out.push({ method, path, calls, first_seen: first, last_seen: last, status: st ? `${st}:${calls}` : '' });
       }
     }
     return out;

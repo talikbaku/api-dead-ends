@@ -104,3 +104,14 @@ test('templating: encoded query strings and matrix params are dropped', () => {
   assert.equal(templatePath('/reset%3Ftoken=abc'), '/reset');
   assert.equal(templatePath('/cart;jsessionid=ABCDEF'), '/cart');
 });
+
+test('report.html: traffic cannot inject markup or script; no external resources', async () => {
+  const { toHtml } = await import('../src/html.mjs');
+  const rows = parseUsage(JSON.stringify([{ method: 'GET', path: '/x/</script><img src=x onerror=alert(1)>', calls: 5, status: '200:5' }]));
+  const spec = loadSpec({ openapi: '3.0.0', info: { title: '</title><script>alert(1)</script>', version: '1' }, paths: { '/z': { get: {} } } });
+  const html = toHtml(classify(rows, spec), {});
+  const dataBlock = html.slice(html.indexOf('<script id="data"'), html.indexOf('</script>', html.indexOf('<script id="data"')) + 9);
+  assert.doesNotMatch(dataBlock.slice(30, -9), /<\/?script|<img/i, 'no raw < in the embedded JSON');
+  assert.doesNotMatch(html, /\bsrc=["']?https?:|href=["']?https?:|@import|url\(/i);
+  assert.match(html, /Content-Security-Policy/);
+});

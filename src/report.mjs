@@ -4,8 +4,8 @@
 import { formatStatus } from './usage.mjs';
 import { RISKY } from './classify.mjs';
 
-/** @param {ReturnType<typeof import('./classify.mjs').classify>} r */
-export function toJson(r) {
+/** @param {ReturnType<typeof import('./classify.mjs').classify>} r @param {{ spikes?: any[], toolVersion?: string }} [extra] */
+export function toJson(r, extra = {}) {
   const fix = (/** @type {any} */ x) => ({ ...x, status: Object.fromEntries(x.status) });
   const brief = (/** @type {any} */ e) => ({ method: e.method, path: e.path, calls: e.calls, errors5xx: e.errors5xx });
   return JSON.stringify(
@@ -18,6 +18,8 @@ export function toJson(r) {
       serverErrors: r.serverErrors.map(brief),
       errorsBelow: r.errorsBelow.map(brief),
       clientErrors: r.clientErrors.map(fix),
+      spikes: extra.spikes || [],
+      ...(extra.toolVersion ? { tool: { name: 'api-dead-ends', version: extra.toolVersion } } : {}),
     },
     null,
     2,
@@ -26,7 +28,7 @@ export function toJson(r) {
 
 /**
  * @param {ReturnType<typeof import('./classify.mjs').classify>} r
- * @param {{ top?: number }} [opt]
+ * @param {{ top?: number, spikes?: any[] }} [opt]
  */
 export function toMarkdown(r, opt = {}) {
   const TOP = opt.top ?? 60;
@@ -53,6 +55,7 @@ export function toMarkdown(r, opt = {}) {
   L.push('## Summary', '');
   const below5 = r.errorsBelow.reduce((a, e) => a + e.errors5xx, 0);
   L.push(`- **${pl(t.serverErrors, 'endpoint')} with server errors** (5xx ≥ ${+(th.errorShare * 100).toFixed(3)}% of calls and ≥ ${th.errorMin} responses)${t.serverErrorsBelowThreshold ? ` — **and ${n(below5)} more 5xx on ${pl(t.serverErrorsBelowThreshold, 'endpoint')} below that threshold**` : ''}.`);
+  if ((opt.spikes || []).length) L.push(`- **${pl(opt.spikes.length, 'recent spike')}**: 5xx over the threshold in the last days, hidden by the period average.`);
   if (t.clientErrors) L.push(`- **${pl(t.clientErrors, 'endpoint')} with many client errors** (4xx other than 401/404 ≥ 10%).`);
   L.push(`- **${pl(t.shadow, 'undocumented endpoint')}** called (not in the spec)${r.shadow.some((x) => RISKY.test(x.path)) ? ' — **includes debug/admin paths**' : ''}${t.ambiguous ? `; plus ${t.ambiguous} path${t.ambiguous === 1 ? '' : 's'} that may be separate routes (see the hint below)` : ''}.`);
   L.push(`- **${pl(t.not_seen, 'endpoint')} not called** in ${winTxt}${t.rare ? `, ${t.rare} rare` : ''}${t.deprecated_in_use ? `, ${t.deprecated_in_use} deprecated but still called` : ''}. Confidence: **${r.window.confidence}**.`);
@@ -71,6 +74,10 @@ export function toMarkdown(r, opt = {}) {
     L.push('');
   };
 
+  const sp = opt.spikes || [];
+  if (sp.length) sec('Recent spikes', ['Method', 'Path', 'Window', '5xx', 'Share', 'Whole period'],
+    sp.map((x) => [x.method, code(x.path), `last ${pl(x.window, 'day')}`, n(x.errors5xx), pct(x.errors5xx, x.calls), `${(x.wholeShare * 100).toFixed(2)}%`]),
+    'Over the threshold in a recent window, hidden by the average of the whole period. Look at what changed.');
   sec('Server errors', ['Method', 'Path', 'Calls', '5xx', 'Share', 'Statuses'],
     r.serverErrors.map((e) => [e.method, code(e.path), n(e.calls), n(e.errors5xx), pct(e.errors5xx, e.calls), st(e.status)]),
     `Rule: 5xx ≥ ${+(th.errorShare * 100).toFixed(3)}% of calls **and** ≥ ${th.errorMin} responses (change with \`--error-share\`, \`--error-min\`).`);
@@ -113,7 +120,7 @@ export function toMarkdown(r, opt = {}) {
 /**
  * Short plain-text summary for the terminal (stderr): the top of each finding, at most `top` rows each.
  * @param {ReturnType<typeof import('./classify.mjs').classify>} r
- * @param {{ top?: number, color?: boolean }} [opt]
+ * @param {{ top?: number, color?: boolean, spikes?: any[] }} [opt]
  */
 export function toTerminal(r, opt = {}) {
   const top = opt.top ?? 3;
@@ -128,6 +135,8 @@ export function toTerminal(r, opt = {}) {
     L.push(`${color}${c.b}${title}${c.x}`, ...rows.slice(0, top));
     if (total > top) L.push(`${c.d}  … ${total - top} more in report.md${c.x}`);
   };
+  const sp = opt.spikes || [];
+  sec(c.r, `▲ Recent spikes: ${sp.length}`, sp.map((x) => row(x.method, x.path, `${(x.share * 100).toFixed(1)}% 5xx in the last ${x.window} day${x.window === 1 ? '' : 's'} (period: ${(x.wholeShare * 100).toFixed(1)}%)`)), sp.length);
   sec(c.r, `✖ Server errors: ${t.serverErrors}${t.serverErrorsBelowThreshold ? ` (+${t.serverErrorsBelowThreshold} below threshold)` : ''}`,
     r.serverErrors.map((e) => row(e.method, e.path, `${n(e.errors5xx)} × 5xx  ${((e.errors5xx / e.calls) * 100).toFixed(1)}%`)), t.serverErrors);
   sec(c.y, `! Undocumented (called, not in spec): ${t.shadow}`, r.shadow.map((s) => row(s.method, s.path, `${n(s.calls)} calls`)), t.shadow);

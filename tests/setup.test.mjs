@@ -238,3 +238,21 @@ test('mcp: no directories are created through a symlink; batches and null params
   assert.equal(msgs.find((m) => m.id === 3).result.isError, true);
   assert.ok(!existsSync(join(base, 'outside', 'newdir')));
 });
+
+test('windows: per-day usage gives 30/7/3/1-day windows and finds a recent spike hidden by the average', () => {
+  const dir = makeRepo();
+  const lines = ['method,path,calls,status,day'];
+  for (let d = 1; d <= 30; d++) {
+    const day = `2026-11-${String(d).padStart(2, '0')}`;
+    lines.push(`GET,/api/products,1000,200:1000,${day}`);
+    lines.push(`GET,/api/cart,1000,${d >= 29 ? '200:900|500:100' : '200:1000'},${day}`);
+  }
+  writeFileSync(join(dir, 'd.csv'), lines.join('\n') + '\n');
+  const r = run(dir, ['report', '--usage', 'd.csv', '--spec', 'services/gateway/openapi.json', '--out', 'rep']);
+  assert.equal(r.status, 0, r.stderr);
+  const j = JSON.parse(readFileSync(join(dir, 'rep/report.json'), 'utf8'));
+  assert.equal(j.window.days, 30);
+  assert.deepEqual(j.spikes.map((s) => [s.path, s.window]), [['/api/cart', 3]]);
+  assert.match(readFileSync(join(dir, 'rep/report.html'), 'utf8'), /"7":/);
+  assert.match(r.stderr, /Recent spikes: 1/);
+});

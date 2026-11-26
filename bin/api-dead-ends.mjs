@@ -11,6 +11,8 @@ import { runInit, UsageError } from '../src/setup/wizard.mjs';
 import { detectProject } from '../src/setup/detect.mjs';
 import { parseRoutes, routesToOpenApi } from '../src/routes.mjs';
 import { toMarkdown, toJson, toTerminal } from '../src/report.mjs';
+import { toHtml } from '../src/html.mjs';
+import { computeWindows } from '../src/windows.mjs';
 import { makeBaseline, compareBaseline } from '../src/baseline.mjs';
 import * as es from '../src/adapters/elasticsearch.mjs';
 import { datadog, appinsights, prometheus, loki, cloudwatch } from '../src/adapters/others.mjs';
@@ -84,7 +86,7 @@ try {
     yes: { type: 'boolean', short: 'y' }, json: { type: 'boolean' }, 'dry-run': { type: 'boolean' }, force: { type: 'boolean' },
     source: { type: 'string' }, services: { type: 'string' }, routes: { type: 'string' }, access: { type: 'string' }, ai: { type: 'string' },
     files: { type: 'string' }, logs: { type: 'string' }, dir: { type: 'string' }, 'log-name': { type: 'string' },
-    response: { type: 'string' }, 'error-min': { type: 'string' }, 'error-share': { type: 'string' }, title: { type: 'string' },
+    response: { type: 'string' }, daily: { type: 'boolean' }, html: { type: 'boolean' }, 'error-min': { type: 'string' }, 'error-share': { type: 'string' }, title: { type: 'string' },
   },
   });
 } catch (e) {
@@ -109,6 +111,7 @@ api-dead-ends.config.json and .api-dead-ends/NEXT-STEPS.md. Never changes code, 
 Without a terminal, pass answers on stdin (one per line) or use --yes.`;
 
 const fields = {
+  daily: v.daily,
   service: v.service, days: v.days ? Number(v.days) : undefined, index: v.index, metric: v.metric, preset: v.preset, map: v.map,
   methodField: v['method-field'], pathField: v['path-field'], statusField: v['status-field'],
   serviceField: v['service-field'], timeField: v['time-field'], accessFilter: v['access-filter'], excludeFilter: v['exclude-filter'], rawPath: v['raw-path'],
@@ -120,6 +123,7 @@ const SOURCES = {
   newrelic, dynatrace, splunk, csv, accesslog,
 };
 
+const VERSION = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')).version;
 const cmd0 = pos[0];
 if (Number(process.versions.node.split('.')[0]) < 22 && cmd0 !== 'mcp' && !v.json) process.stderr.write(`Note: Node ${process.versions.node} is end-of-life and misses recent security fixes; Node 22 or 24 is recommended.\n`);
 if (v.version) { console.log(JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')).version); process.exit(0); }
@@ -183,10 +187,10 @@ try {
     /** @type {Map<string, any>} */
     const acc = new Map();
     if (pos[1] === 'accesslog') {
-      const { lines, bad } = await accesslog.stream(pos.slice(2), (r) => addRow(acc, r, { keep }));
+      const { lines, bad } = await accesslog.stream(pos.slice(2), (r) => addRow(acc, r, { keep, daily: v.daily }));
       console.error(`${lines} lines read, ${bad} not recognized`);
     } else {
-      for (const f of pos.slice(2)) for (const r of src.parse(await readFile(f, 'utf8'), fields)) addRow(acc, r, { keep });
+      for (const f of pos.slice(2)) for (const r of src.parse(await readFile(f, 'utf8'), fields)) addRow(acc, r, { keep, daily: v.daily });
     }
     const csv = toCsv([...acc.values()].sort((a, b) => b.calls - a.calls));
     if (v.out) { await writeFile(v.out, csv); console.error(`${acc.size} method+path pairs → ${v.out}`); } else process.stdout.write(csv);
@@ -208,13 +212,15 @@ try {
     const { rows, skipped } = await es.collect(search, { ...fields, windowHours: v['window-hours'] ? Number(v['window-hours']) : 3, onProgress: (m) => console.error(m) });
     /** @type {Map<string, any>} */
     const acc = new Map();
-    for (const r of rows) addRow(acc, r, { keep });
+    for (const r of rows) addRow(acc, r, { keep, daily: v.daily });
     const csv = toCsv([...acc.values()].sort((a, b) => b.calls - a.calls));
     if (v.out) await writeFile(v.out, csv); else process.stdout.write(csv);
     if (skipped.length) console.error(`WARNING: ${skipped.length} time windows skipped — usage table is incomplete.`);
   } else if (cmd === 'report') {
     if (!v.usage || !spec) fail('Usage: api-dead-ends report --usage <usage.csv> --spec <openapi.json>\n  usage.csv comes from `convert` or `fetch` (traffic data). No spec? `api-dead-ends spec from-routes <routes.txt>`. Not sure where to start? `api-dead-ends init`.');
-    const rows = parseUsage(await readFile(v.usage, 'utf8'), { keep });
+    const dailyRows = parseUsage(await readFile(v.usage, 'utf8'), { keep, daily: true });
+    const hasDays = dailyRows.some((x) => x.day);
+    const rows = hasDays ? [...dailyRows.reduce((acc, x) => addRow(acc, { ...x, day: undefined }, { template: false }), new Map()).values()] : dailyRows;
     if (!rows.reduce((a, x) => a + x.calls, 0)) fail(`No traffic in ${v.usage}: 0 requests. Every endpoint would look "not seen", which says nothing. Check the query, the service name and the window.`);
     const num = (/** @type {string} */ k, /** @type {number} */ min, /** @type {number} */ max) => {
       if (v[k] === undefined) return undefined;
@@ -227,15 +233,21 @@ try {
     for (const x of failOn || []) if (!['new-shadow', 'deprecated-growth'].includes(x)) fail(`--fail-on: unknown check "${x}". Use: new-shadow, deprecated-growth`);
     const r = classify(rows, spec, { days: num('days', 1, 3650), rare: num('rare', 1, 1e9), keepPreflight: v['keep-preflight'],
       errorMin: num('error-min', 1, 1e9), errorShare: share === undefined ? undefined : share / 100 });
-    const md = toMarkdown(r);
-    if (v.json && !v.out) process.stdout.write(toJson(r));
+    const cOpt = { rare: num('rare', 1, 1e9), keepPreflight: v['keep-preflight'], errorMin: num('error-min', 1, 1e9), errorShare: share === undefined ? undefined : share / 100 };
+    const win = hasDays ? computeWindows(dailyRows, spec, { ...cOpt, days: num('days', 1, 3650) }) : null;
+    const extra = { spikes: win?.spikes || [], toolVersion: VERSION };
+    const md = toMarkdown(r, extra);
+    if (v.json && !v.out) process.stdout.write(toJson(r, extra));
     else if (v.out) {
       await mkdir(v.out, { recursive: true });
       await writeFile(join(v.out, 'report.md'), md);
-      await writeFile(join(v.out, 'report.json'), toJson(r));
+      await writeFile(join(v.out, 'report.json'), toJson(r, extra));
+      if (v.html !== false) {
+        await writeFile(join(v.out, 'report.html'), toHtml(r, { ...extra, win }));
+      }
       const t = r.totals;
-      console.error(toTerminal(r, { color: process.stderr.isTTY && !process.env.NO_COLOR }) + '\n');
-      console.error(`${t.operations} operations: server errors ${t.serverErrors} (+${t.serverErrorsBelowThreshold} below threshold), undocumented ${t.shadow}${t.ambiguous ? ` (${t.ambiguous} a word on a parameter)` : ''}, not called ${t.not_seen}, rare ${t.rare}, deprecated in use ${t.deprecated_in_use}, used ${t.used} → ${join(v.out, 'report.md')}`);
+      console.error(toTerminal(r, { color: process.stderr.isTTY && !process.env.NO_COLOR, spikes: extra.spikes }) + '\n');
+      console.error(`${t.operations} operations: server errors ${t.serverErrors} (+${t.serverErrorsBelowThreshold} below threshold), undocumented ${t.shadow}${t.ambiguous ? ` (${t.ambiguous} a word on a parameter)` : ''}, not called ${t.not_seen}, rare ${t.rare}, deprecated in use ${t.deprecated_in_use}, used ${t.used} → ${join(v.out, 'report.md')} · report.html`);
     } else process.stdout.write(md);
     if (v['write-baseline']) await writeFile(v['write-baseline'], JSON.stringify(makeBaseline(r), null, 2) + '\n');
     if (v.baseline) {

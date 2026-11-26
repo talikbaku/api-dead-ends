@@ -19,6 +19,7 @@ const ALIASES = {
   status: ['status', 'status_code', 'http_status', 'resultcode', 'response_code', 'elb_status_code', 'sc_status', 'code', 'http.response.status_code'],
   first_seen: ['first_seen', 'firstseen', 'min_time', 'first', 'min(_time)', 'earliest'],
   last_seen: ['last_seen', 'lastseen', 'max_time', 'last', 'max(_time)', 'latest'],
+  day: ['day', 'date', '_time', 'timestamp', 'time'],
 };
 
 export const csv = {
@@ -54,7 +55,8 @@ export const csv = {
       if (!method && /^[A-Z]+ \//.test(path)) [method, path] = [path.split(' ')[0], path.slice(path.indexOf(' ') + 1)];
       const calls = idx.calls >= 0 ? Number(get('calls')) || 0 : 1;
       const st = get('status');
-      return { method, path, calls, first_seen: iso(get('first_seen')), last_seen: iso(get('last_seen')), status: !st ? '' : st.includes(':') ? st : `${st}:${calls}` };
+      const day = iso(get('day'));
+      return { method, path, calls, first_seen: iso(get('first_seen')) || day, last_seen: iso(get('last_seen')) || day, status: !st ? '' : st.includes(':') ? st : `${st}:${calls}`, ...(day ? { day: day.slice(0, 10) } : {}) };
     });
   },
 };
@@ -104,8 +106,8 @@ export const datadogApm = {
       '# Note: resource_name in tags is normalized (lowercase, some characters → "_"). For exact names use the Spans API (datadog source, ~15 days).',
     ].join('\n');
   },
-  /** @param {string} text */
-  parse(text) {
+  /** @param {string} text @param {{ daily?: boolean }} [o] */
+  parse(text, o = {}) {
     const out = [];
     for (const d of splitJson(text)) {
       if (!Array.isArray(d?.series)) throw new Error('Datadog metrics: no series in the response');
@@ -124,7 +126,14 @@ export const datadogApm = {
         calls = Math.round(calls);
         if (!calls || !path) continue;
         const st = tags['http.status_code'];
-        out.push({ method, path, calls, first_seen: first, last_seen: last, status: st ? `${st}:${calls}` : '' });
+        if (o.daily) {
+          for (const [ms, val] of s.pointlist || []) {
+            const n = Math.round(Number(val));
+            if (!(n > 0)) continue;
+            const t = new Date(Number(ms)).toISOString();
+            out.push({ method, path, calls: n, first_seen: t, last_seen: t, day: t.slice(0, 10), status: st ? `${st}:${n}` : '' });
+          }
+        } else out.push({ method, path, calls, first_seen: first, last_seen: last, status: st ? `${st}:${calls}` : '' });
       }
     }
     return out;

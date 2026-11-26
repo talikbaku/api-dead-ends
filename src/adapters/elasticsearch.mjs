@@ -158,13 +158,14 @@ export function splitJson(text) {
 /**
  * Walk time windows, splitting on timeout. search(body) is an injected transport.
  * @param {(body: any) => Promise<any>} search
- * @param {EsOptions & { days?: number, windowHours?: number, now?: number, minWindowHours?: number, onProgress?: (msg: string) => void }} o
+ * @param {EsOptions & { days?: number, windowHours?: number, now?: number, minWindowHours?: number, daily?: boolean, onProgress?: (msg: string) => void }} o
  */
 export async function collect(search, o) {
   const H = 3600e3;
   const now = o.now ?? Date.now();
-  const start = now - (o.days ?? 15) * 24 * H;
   const win = (o.windowHours ?? 3) * H;
+  // With daily output, align windows to UTC hours so each 3-hour window sits inside one day.
+  const start = o.daily ? Math.floor((now - (o.days ?? 15) * 24 * H) / win) * win : now - (o.days ?? 15) * 24 * H;
   const minWin = (o.minWindowHours ?? 0.25) * H;
   /** @type {Array<[number, number]>} */
   const queue = [];
@@ -185,7 +186,8 @@ export async function collect(search, o) {
         if (!a.after_key || a.buckets.length < (o.size ?? 1000)) break;
         after = a.after_key;
       }
-      rows.push(...win);
+      const day = new Date(from).toISOString().slice(0, 10);
+      rows.push(...(o.daily ? win.map((r) => ({ ...r, day })) : win));
       o.onProgress?.(`${new Date(from).toISOString().slice(0, 16)}: ok`);
     } catch (e) {
       if (to - from > minWin) {

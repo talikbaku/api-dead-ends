@@ -129,14 +129,14 @@ export function buildSteps(c) {
     const svc = ` --service ${q(s.logName)}`;
     if (t === 'elasticsearch') {
       if (c.source.access === 'api-key') {
-        steps.push({ title: 'Pull the usage table from Elasticsearch (first: export ES_API_KEY=<read-only key> in your shell)', cmd: `${ade} fetch elasticsearch --url ${q(c.source.url || 'https://es.example:9200')} --index ${q(c.source.index || 'logs-*')}${svc}${days}${specFlag} -o ${usage}` });
+        steps.push({ title: 'Pull the usage table from Elasticsearch (first: export ES_API_KEY=<read-only key> in your shell)', cmd: `${ade} fetch elasticsearch --url ${q(c.source.url || 'https://es.example:9200')} --index ${q(c.source.index || 'logs-*')}${svc}${days}${specFlag} --daily -o ${usage}` });
       } else {
         steps.push({ title: 'Print the query (skip if a colleague already gave you the response)', cmd: `${ade} query elasticsearch${svc}${days} --index ${q(c.source.index || 'logs-*')}${specFlag} --response ${dir}/response.json > ${dir}/query.txt` });
         steps.push({ title: 'Run it in Kibana → Dev Tools, save the response', note: `save the JSON response as ${dir}/response.json\n  already have an export? cp <your-file> ${dir}/response.json` });
         steps.push({ title: 'Convert the response', cmd: `${ade} convert elasticsearch ${dir}/response.json${specFlag} -o ${usage}` });
       }
     } else if (t === 'accesslog') {
-      steps.push({ title: 'Read the access log files (streamed, IPs and user agents are dropped)', cmd: `${ade} convert accesslog ${c.source.files || '/var/log/nginx/access.log*'}${specFlag} -o ${usage}` });
+      steps.push({ title: 'Read the access log files (streamed, IPs and user agents are dropped)', cmd: `${ade} convert accesslog ${c.source.files || '/var/log/nginx/access.log*'}${specFlag} --daily -o ${usage}` });
     } else if (t === 'csv') {
       steps.push({ title: 'Convert your CSV export', cmd: `${ade} convert csv ${c.source.files || 'export.csv'} --map method=…,path=…,calls=…,status=…${specFlag} -o ${usage}` });
     } else if (t === 'none') {
@@ -154,7 +154,7 @@ export function buildSteps(c) {
       const preset = t === 'prometheus' ? ` --preset ${s.preset || 'generic'}` : '';
       steps.push({ title: `Print the ${t} query (skip if you already have the response)`, cmd: `${ade} query ${t}${svc}${days}${preset}${specFlag} --response ${dir}/response.json > ${dir}/query.txt` });
       steps.push({ title: 'Run the query from query.txt, save the response', note: `save it as ${dir}/response.json${(SOURCES.find((x) => x.id === t)?.env || []).length ? ` — needs ${SOURCES.find((x) => x.id === t)?.env?.join(', ')} in your shell, never in files` : ''}` });
-      steps.push({ title: 'Convert the response', note: `already have an export? cp <your-file> ${dir}/response.json`, cmd: `${ade} convert ${t} ${dir}/response.json${preset}${specFlag} -o ${usage}` });
+      steps.push({ title: 'Convert the response', note: `already have an export? cp <your-file> ${dir}/response.json`, cmd: `${ade} convert ${t} ${dir}/response.json${preset}${specFlag}${['prometheus', 'datadog-apm'].includes(t) ? ' --daily' : ''} -o ${usage}` });
     }
     steps.push({ title: 'Build the report', cmd: `${ade} report --usage ${usage}${specFlag}${days} --out ${dir}/report` });
     return { service: s.name, steps };
@@ -177,7 +177,7 @@ export function renderNextSteps(c) {
     });
   }
   L.push('## Reading the result', '',
-    '- `report.md` / `report.json`: endpoints by class — used, rare, not seen, deprecated in use, shadow (in traffic, not in spec), noise, server errors.',
+    '- `report.html`: open in a browser — tabs per finding, 30/7/3/1-day windows when the usage table has days, recent spikes.\n- `report.md` / `report.json`: endpoints by class — used, rare, not seen, deprecated in use, shadow (in traffic, not in spec), noise, server errors.',
     '- "Not seen" is a hint, not a verdict: the endpoint may be called rarely, or its traffic may not be logged.',
     `- Window ${c.days} days: confidence ${c.days >= 90 ? 'high' : c.days >= 35 ? 'medium' : 'low — fine for errors, not for removal decisions'}.`,
     '- What is written to disk: `response.json` keeps the raw source response (raw paths may contain tokens or IDs); `usage.csv` and reports keep only templated paths. `.api-dead-ends/.gitignore` keeps everything except NEXT-STEPS.md and AGENT.md out of git. You can delete `response.json` after `convert`.', '');
