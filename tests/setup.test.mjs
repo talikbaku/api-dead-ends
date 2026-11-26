@@ -256,3 +256,23 @@ test('windows: per-day usage gives 30/7/3/1-day windows and finds a recent spike
   assert.match(readFileSync(join(dir, 'rep/report.html'), 'utf8'), /"7":/);
   assert.match(r.stderr, /Recent spikes: 1/);
 });
+
+test('duplicates: repeated POSTs from the same client within 2 s, retries after errors; no IPs in the output', () => {
+  const dir = makeRepo();
+  const L = (ip, t, m, p, s) => `${ip} - - [10/Nov/2026:10:00:${String(t).padStart(2, '0')} +0000] "${m} ${p} HTTP/1.1" ${s} 1 "-" "app/1.0"`;
+  writeFileSync(join(dir, 'a.log'), [
+    L('198.51.100.1', 0, 'POST', '/orders', 201), L('198.51.100.1', 1, 'POST', '/orders', 500), // double click
+    L('198.51.100.1', 2, 'POST', '/orders', 201), // retry after the 500
+    L('198.51.100.2', 1, 'POST', '/orders', 201), // another client: not a duplicate
+    L('198.51.100.1', 30, 'POST', '/orders', 201), // much later: not a duplicate
+    L('198.51.100.1', 5, 'GET', '/orders', 200), L('198.51.100.1', 5, 'GET', '/orders', 200), // GETs are ignored
+  ].join('\n') + '\n');
+  const c = run(dir, ['convert', 'accesslog', 'a.log', '-o', 'u.csv', '--duplicates', 'dup.json']);
+  assert.equal(c.status, 0, c.stderr);
+  const d = JSON.parse(readFileSync(join(dir, 'dup.json'), 'utf8'));
+  assert.deepEqual(d.rows.map((x) => [x.method, x.path, x.calls, x.repeats, x.afterError]), [['POST', '/orders', 5, 2, 1]]);
+  assert.doesNotMatch(readFileSync(join(dir, 'dup.json'), 'utf8'), /198\.51/);
+  const r = run(dir, ['report', '--usage', 'u.csv', '--spec', 'services/gateway/openapi.json', '--duplicates', 'dup.json', '--days', '1', '--out', 'rep']);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(readFileSync(join(dir, 'rep/report.md'), 'utf8'), /Repeated non-GET requests/);
+});

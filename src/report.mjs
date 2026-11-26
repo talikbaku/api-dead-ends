@@ -4,7 +4,7 @@
 import { formatStatus } from './usage.mjs';
 import { RISKY } from './classify.mjs';
 
-/** @param {ReturnType<typeof import('./classify.mjs').classify>} r @param {{ spikes?: any[], toolVersion?: string }} [extra] */
+/** @param {ReturnType<typeof import('./classify.mjs').classify>} r @param {{ spikes?: any[], toolVersion?: string, duplicates?: any, probe?: any }} [extra] */
 export function toJson(r, extra = {}) {
   const fix = (/** @type {any} */ x) => ({ ...x, status: Object.fromEntries(x.status) });
   const brief = (/** @type {any} */ e) => ({ method: e.method, path: e.path, calls: e.calls, errors5xx: e.errors5xx });
@@ -19,6 +19,8 @@ export function toJson(r, extra = {}) {
       errorsBelow: r.errorsBelow.map(brief),
       clientErrors: r.clientErrors.map(fix),
       spikes: extra.spikes || [],
+      ...(extra.duplicates ? { duplicates: extra.duplicates } : {}),
+      ...(extra.probe ? { probe: extra.probe } : {}),
       ...(extra.toolVersion ? { tool: { name: 'api-dead-ends', version: extra.toolVersion } } : {}),
     },
     null,
@@ -28,7 +30,7 @@ export function toJson(r, extra = {}) {
 
 /**
  * @param {ReturnType<typeof import('./classify.mjs').classify>} r
- * @param {{ top?: number, spikes?: any[] }} [opt]
+ * @param {{ top?: number, spikes?: any[], duplicates?: any, probe?: any }} [opt]
  */
 export function toMarkdown(r, opt = {}) {
   const TOP = opt.top ?? 60;
@@ -92,6 +94,11 @@ export function toMarkdown(r, opt = {}) {
   if (r.ambiguous.length) sec('Possibly separate routes (hint)', ['Method', 'Path seen', 'Counted as', 'Calls'],
     r.ambiguous.map((a) => [a.method, code(a.path), code(a.matched), n(a.calls)]),
     'A word landed on a spec parameter and was counted into that operation. If your app has its own route for it (e.g. `/orders/export`), that route is undocumented; if the parameter is a slug (`/categories/books`), ignore this.');
+  if (opt.duplicates) sec('Repeated non-GET requests (duplicates)', ['Method', 'Path', 'Calls', 'Repeats', 'Share', 'Note'],
+    opt.duplicates.rows.slice(0, TOP).map((/** @type {any} */ d) => [d.method, code(d.path), n(d.calls), n(d.repeats), pct(d.repeats, d.calls), d.note]), opt.duplicates.note);
+  if (opt.probe) sec('Front-end probe: problems', ['Page', 'Method', 'Path', 'Status', 'ms', 'Per load', 'Problem'],
+    opt.probe.rows.filter((/** @type {any} */ x) => x.problem).slice(0, TOP).map((/** @type {any} */ x) => [code(x.page), x.method, code(x.path), String(x.status || '—'), x.ms == null ? '—' : n(x.ms), String(x.perLoad), x.problem]),
+    `${opt.probe.pages} pages, ${opt.probe.requests} API requests. ${opt.probe.note}`);
   sec(`Not called in ${winTxt}`, ['Method', 'Path', 'Note'],
     E.filter((e) => e.class === 'not_seen').sort((a, b) => a.path.localeCompare(b.path))
       .map((e) => [e.method, code(e.path), e.periodicHint ? 'looks periodic (report/job/import): check before removing' : '']));

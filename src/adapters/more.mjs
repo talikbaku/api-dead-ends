@@ -2,6 +2,8 @@
 // More sources. None uses the network: they print a query and parse the saved response.
 // Response shapes follow vendor docs; NOT yet verified on real accounts (except generic CSV).
 
+import { templatePath } from '../template.mjs';
+import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { createGunzip } from 'node:zlib';
@@ -354,8 +356,9 @@ export const accesslog = {
    * @param {string[]} files
    * @param {(row: any) => void} onRow
    */
-  async stream(files, onRow) {
+  async stream(files, onRow, opt = {}) {
     let lines = 0, bad = 0;
+    const dup = opt.duplicates ? new Duplicates(opt.duplicates) : null;
     for (const f of files) {
       const src = createReadStream(f);
       const input = f.endsWith('.gz') ? src.pipe(createGunzip()) : src;
@@ -363,12 +366,64 @@ export const accesslog = {
         lines++;
         if (line === null) { bad++; continue; } // longer than MAX_LINE: skipped, never buffered
         const r = parseAccessLine(line);
-        if (r) onRow(toRow(r)); else if (line.trim()) bad++;
+        if (r) { onRow(toRow(r)); dup?.add(r, line); } else if (line.trim()) bad++;
       }
     }
-    return { lines, bad };
+    return { lines, bad, ...(dup ? { duplicates: dup.result() } : {}) };
   },
 };
+
+/**
+ * Repeated non-GET requests from access logs: same client, method and exact path within N seconds.
+ * The client is a hash of IP + user agent, kept in memory only and never written out.
+ * Access logs have no request bodies, so this is an upper bound ("possibly the same request").
+ */
+class Duplicates {
+  /** @param {{ windowSec?: number, keep?: Set<string> }} o */
+  constructor(o) {
+    this.win = (o.windowSec ?? 2) * 1000;
+    this.keep = o.keep;
+    /** @type {Map<string, { t: number, status: string }>} */
+    this.last = new Map();
+    /** @type {Map<string, { method: string, path: string, calls: number, repeats: number, afterError: number }>} */
+    this.by = new Map();
+  }
+  /** @param {{ method: string, path: string, status: string, time: string }} r @param {string} line */
+  add(r, line) {
+    const method = String(r.method || '').toUpperCase();
+    if (!method || method === 'GET' || method === 'HEAD' || method === 'OPTIONS') return;
+    const t = Date.parse(r.time);
+    if (!Number.isFinite(t)) return;
+    const tpl = templatePath(r.path, { keep: this.keep });
+    const agg = this.by.get(`${method} ${tpl}`) || { method, path: tpl, calls: 0, repeats: 0, afterError: 0 };
+    agg.calls++;
+    const key = `${clientOf(line)} ${method} ${String(r.path).split(/[?#]/)[0]}`;
+    const prev = this.last.get(key);
+    if (prev && t - prev.t <= this.win) { agg.repeats++; if (Number(prev.status) >= 400) agg.afterError++; }
+    this.last.set(key, { t, status: r.status });
+    this.by.set(`${method} ${tpl}`, agg);
+    if (this.last.size > 200000) this.last.clear(); // bound memory on huge logs (keeps working on newer lines)
+  }
+  result() {
+    const rows = [...this.by.values()].filter((x) => x.repeats > 0).sort((a, b) => b.repeats - a.repeats)
+      .map((x) => ({ ...x, withinSeconds: this.win / 1000, note: x.afterError ? `${x.afterError} after an error response (retries?)` : 'blind repeats: double click or client retry without an error' }));
+    return { source: 'access logs', windowSec: this.win / 1000, note: `Same client (IP + user agent), method and path within ${this.win / 1000} s. Access logs have no request bodies, so this is an upper bound.`, rows };
+  }
+}
+
+/** Short in-memory hash of client IP + user agent (never stored). @param {string} line */
+function clientOf(line) {
+  let ip = '', ua = '';
+  const t = line.trim();
+  if (t.startsWith('{')) {
+    try { const j = JSON.parse(t); ip = String(j.remote_addr ?? j.client_ip ?? j['client.ip'] ?? j.ip ?? ''); ua = String(j.http_user_agent ?? j.user_agent ?? j['user_agent.original'] ?? ''); } catch { /* ignore */ }
+  } else {
+    ip = t.split(' ')[0];
+    const q = t.match(/"([^"]*)"\s*$/);
+    ua = q ? q[1] : '';
+  }
+  return createHash('sha256').update(ip + '|' + ua).digest('base64').slice(0, 12);
+}
 
 /** @param {{ method: string, path: string, status: string, time: string }} r */
 function toRow(r) {

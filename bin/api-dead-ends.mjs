@@ -51,7 +51,8 @@ Commands:
         newrelic, dynatrace         NRQL / DQL
         splunk, csv                 any table export (--map method=..,path=..,calls=..,status=..)
         accesslog                   raw nginx/Apache/JSON access logs on disk (.gz ok), streamed locally
-  api-dead-ends convert <source> <response-file...> [field flags] [-o usage.csv]
+  api-dead-ends convert <source> <response-file...> [field flags] [--daily] [-o usage.csv]
+      accesslog only: --duplicates dup.json [--dup-window 2]  repeated POST/PUT/PATCH/DELETE from the same client
       Turn the saved response into a usage table (method,path,calls,first_seen,last_seen,status).
   api-dead-ends fetch elasticsearch --url <es-url> --index <pattern> [--service X] [--days 15] [-o usage.csv]
       Pull the usage table straight from Elasticsearch/OpenSearch (API key in ES_API_KEY). Read-only, 3-hour windows.
@@ -61,6 +62,7 @@ Commands:
       --out DIR           write report.md + report.json there (default: print Markdown)
       --json              print report.json to stdout instead of Markdown
       --probe FILE        add a probe.json (from \`probe --out\`) to report.html
+      --duplicates FILE   add duplicates.json (from \`convert accesslog … --duplicates FILE\`) to the report
       --baseline FILE     compare shadow endpoints with a saved baseline (CI mode)
       --fail-on LIST      new-shadow (default), deprecated-growth
       --write-baseline F  save current shadow list as a baseline
@@ -91,6 +93,7 @@ try {
     source: { type: 'string' }, services: { type: 'string' }, routes: { type: 'string' }, access: { type: 'string' }, ai: { type: 'string' },
     files: { type: 'string' }, logs: { type: 'string' }, dir: { type: 'string' }, 'log-name': { type: 'string' },
     response: { type: 'string' }, daily: { type: 'boolean' }, html: { type: 'boolean' },
+    duplicates: { type: 'string' }, 'dup-window': { type: 'string' },
     pages: { type: 'string' }, login: { type: 'boolean' }, headed: { type: 'boolean' }, probe: { type: 'string' }, 'slow-ms': { type: 'string' }, 'error-min': { type: 'string' }, 'error-share': { type: 'string' }, title: { type: 'string' },
   },
   });
@@ -215,8 +218,12 @@ try {
     /** @type {Map<string, any>} */
     const acc = new Map();
     if (pos[1] === 'accesslog') {
-      const { lines, bad } = await accesslog.stream(pos.slice(2), (r) => addRow(acc, r, { keep, daily: v.daily }));
-      console.error(`${lines} lines read, ${bad} not recognized`);
+      const st = await accesslog.stream(pos.slice(2), (r) => addRow(acc, r, { keep, daily: v.daily }), v.duplicates ? { duplicates: { windowSec: v['dup-window'] ? Number(v['dup-window']) : 2, keep } } : {});
+      console.error(`${st.lines} lines read, ${st.bad} not recognized`);
+      if (st.duplicates) {
+        await writeFile(v.duplicates, JSON.stringify(st.duplicates, null, 2) + '\n');
+        console.error(`${st.duplicates.rows.length} endpoints with repeated non-GET requests → ${v.duplicates} (add to the report: report … --duplicates ${v.duplicates})`);
+      }
     } else {
       for (const f of pos.slice(2)) for (const r of src.parse(await readFile(f, 'utf8'), fields)) addRow(acc, r, { keep, daily: v.daily });
     }
@@ -264,7 +271,8 @@ try {
     const cOpt = { rare: num('rare', 1, 1e9), keepPreflight: v['keep-preflight'], errorMin: num('error-min', 1, 1e9), errorShare: share === undefined ? undefined : share / 100 };
     const win = hasDays ? computeWindows(dailyRows, spec, { ...cOpt, days: num('days', 1, 3650) }) : null;
     const extra = { spikes: win?.spikes || [], toolVersion: VERSION,
-      probe: v.probe ? JSON.parse(await readFile(v.probe, 'utf8')) : null };
+      probe: v.probe ? JSON.parse(await readFile(v.probe, 'utf8')) : null,
+      duplicates: v.duplicates ? JSON.parse(await readFile(v.duplicates, 'utf8')) : null };
     const md = toMarkdown(r, extra);
     if (v.json && !v.out) process.stdout.write(toJson(r, extra));
     else if (v.out) {
