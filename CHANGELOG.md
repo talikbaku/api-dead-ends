@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.2.0 — 2026-11-25
+## 0.2.0 — 2026-11-26
 
 - `init`: step-by-step setup wizard (interactive, `--yes`, `--json`, `--dry-run`); scans polyglot repos per service.
 - `spec from-routes`: OpenAPI from framework route lists (Rails, Flask, Django, Spring, Gin, Echo, Fiber, Laravel, Express, Next.js `[id]`).
@@ -14,6 +14,8 @@
 - VictoriaLogs source (LogsQL); Nuxt detection.
 - "What changed today" (`--hourly`): today vs the same hours on previous days, first error hour, traffic changes; error texts behind 5xx via traces (`fetch kibana --errors`); `--tz`; spikes compare with the days before; `--include-today`.
 - `fetch kibana`: export through a browser login to Kibana (no ES URL or API key needed).
+- `fetch victorialogs`: VictoriaLogs over HTTP (read-only LogsQL); method/path/status/trace fields detected from the data (Kong, APISIX, nginx, Envoy, OpenTelemetry names); IDs folded on the server; `--hourly`, `--errors` (error texts from app logs in the same traces), `--tenant`, `VL_AUTH`.
+- What changed: peak req/s today vs before, "calls and 5xx up together"; the last hour of an export made mid-hour is not compared.
 - `spec from-next`: Next.js routes from `app/**/route.*` and `pages/api`.
 - MCP write tools `init` and `write_report` (only the config and `.api-dead-ends/`); per-command `--help`.
 - Node.js 20+ (22+ recommended).

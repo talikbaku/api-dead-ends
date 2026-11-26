@@ -74,6 +74,16 @@ npx api-dead-ends init
 
 **Only a browser login to Kibana?** `npx api-dead-ends fetch kibana --url "<Discover URL>" --service my-api --daily -o usage.csv` — a browser opens, you log in, and the export runs through your session (needs Playwright; nothing is saved).
 
+**Something broke today? What changed:** fetch per hour, then compare today with the same hours on previous days:
+
+```bash
+npx api-dead-ends fetch victorialogs --url http://localhost:9428 --service gateway --days 3 --hourly --errors errors.json -o usage.csv
+#   or: fetch kibana --url "<Discover URL>" --service my-api --days 3 --hourly --errors errors.json -o usage.csv
+npx api-dead-ends report --usage usage.csv --spec openapi.json --include-today --errors errors.json --tz America/New_York --out report/
+```
+
+The report then says which endpoints got 5xx today and **from which hour** (in your time zone too — compare with your release time), total traffic and peak req/s against the same hours before, endpoints whose **calls and 5xx went up together** (retries, client loops), new and vanished endpoints, and the **error texts** behind the 5xx (from the same traces, IDs masked).
+
 **Already have an export** from Kibana, Datadog, Prometheus…? Two commands:
 
 ```bash
@@ -150,7 +160,7 @@ Any other chat assistant: paste [`prompts/any-ai.md`](prompts/any-ai.md) with yo
 ## 🛡️ Safe by default
 
 - **Aggregates only.** The tool reads counts per method + path + status. Raw log lines, IPs, tokens and request bodies never enter it; IDs and token-like path segments are folded to `{id}`, query strings dropped.
-- **No network by default.** It prints queries; you run them with your own access. Exceptions you start yourself: `fetch elasticsearch` (your read-only key), `fetch kibana` (your browser login) and `probe <url>` (a browser on the site you name).
+- **No network by default.** It prints queries; you run them with your own access. Exceptions you start yourself: `fetch elasticsearch` (your read-only key), `fetch kibana` (your browser login), `fetch victorialogs` (your VictoriaLogs URL; read-only LogsQL) and `probe <url>` (a browser on the site you name).
 - **Nothing changes your code.** `init` writes a config and next steps, never overwrites, and keeps raw exports out of git.
 - **Traffic is untrusted.** Paths from logs are escaped in reports and in MCP output, so they can't inject Markdown or instructions. [docs/SECURITY.md](docs/SECURITY.md)
 

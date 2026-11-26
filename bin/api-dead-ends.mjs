@@ -62,6 +62,7 @@ Commands:
       Turn the saved response into a usage table (method,path,calls,first_seen,last_seen,status).
   api-dead-ends fetch elasticsearch --url <es-url> --index <pattern> [--service X] [--days 15] [-o usage.csv]
   api-dead-ends fetch kibana --url "<Kibana Discover URL>" --service X [--days 15]   (browser login, needs Playwright)
+  api-dead-ends fetch victorialogs --url http://<victoria-logs>:9428 [--service X] [--hourly] [--errors errors.json]
       Pull the usage table straight from Elasticsearch/OpenSearch (API key in ES_API_KEY). Read-only, 3-hour windows.
   api-dead-ends report --usage <usage.csv|json> --spec <openapi.json> [options]
       --days N            window length (default: inferred from first/last seen)
@@ -101,7 +102,7 @@ try {
     files: { type: 'string' }, logs: { type: 'string' }, dir: { type: 'string' }, 'log-name': { type: 'string' },
     response: { type: 'string' }, daily: { type: 'boolean' }, hourly: { type: 'boolean' }, tz: { type: 'string' }, errors: { type: 'string' }, html: { type: 'boolean' },
     duplicates: { type: 'string' }, reference: { type: 'string' }, 'include-today': { type: 'boolean' }, 'dup-window': { type: 'string' },
-    pages: { type: 'string' }, 'api-host': { type: 'string' }, 'error-hours': { type: 'string' }, 'trace-field': { type: 'string' }, 'error-field': { type: 'string' }, login: { type: 'boolean' }, headed: { type: 'boolean' }, probe: { type: 'string' }, 'slow-ms': { type: 'string' }, 'error-min': { type: 'string' }, 'error-share': { type: 'string' }, title: { type: 'string' },
+    pages: { type: 'string' }, 'api-host': { type: 'string' }, 'error-hours': { type: 'string' }, 'trace-field': { type: 'string' }, 'error-field': { type: 'string' }, login: { type: 'boolean' }, headed: { type: 'boolean' }, probe: { type: 'string' }, 'slow-ms': { type: 'string' }, 'error-min': { type: 'string' }, 'error-share': { type: 'string' }, title: { type: 'string' }, tenant: { type: 'string' }, 'max-rows': { type: 'string' },
   },
   });
 } catch (e) {
@@ -164,14 +165,21 @@ api-dead-ends fetch kibana --url "<Kibana Discover URL>" --service S [--days N] 
 Only a browser login to Kibana? A browser opens, you log in, and the tool runs the same read-only aggregation through
 Kibana's Dev Tools proxy with your session (needs Playwright). Nothing is saved to disk. Fields are detected per service.
   --hourly           one row per hour → "What changed today" (today vs the same hours on previous days)
-  --errors F         also save error texts behind the top 5xx endpoints (same traces, last --error-hours 24; IDs masked)`,
+  --errors F         also save error texts behind the top 5xx endpoints (same traces, last --error-hours 24; IDs masked)
+api-dead-ends fetch victorialogs --url http://<victoria-logs>:9428 [--service S] [--days 7] [--daily|--hourly] [--errors errors.json] [-o usage.csv]
+Reads VictoriaLogs over its HTTP API (LogsQL, read-only). Method/path/status/trace fields are detected from the data
+(Kong, APISIX, nginx, Envoy, OpenTelemetry names); override with --method-field / --path-field / --status-field.
+  --service S        filter on --service-field (default container_name)   --access-filter Q   extra LogsQL filter
+  --tenant A:P       multi-tenant AccountID:ProjectID    VL_AUTH env      whole Authorization header (Basic … / Bearer …)
+  --errors F         error texts: records without a status in the same traces as the 5xx (any service, e.g. the app behind the gateway)
+  --max-rows N       groups per day (default 50000); more → a warning, only the biggest kept`,
   report: `api-dead-ends report --usage usage.csv --spec openapi.json [--days N] [--out DIR] [--json]
 Writes report.md, report.json and report.html (with --out), or prints Markdown / JSON.
   --days N          window length when the data has no dates     --rare N         fewer calls = rare (default 100)
   --error-share P   server-error finding: 5xx ≥ P% (default 1)    --error-min N    … and ≥ N responses (default 10)
   --probe F         add probe.json                                 --duplicates F   add duplicates.json
   --include-today   keep today's partial day in the windows (an incident in progress)
-  --errors F        add error texts (from fetch kibana --errors)        --tz Zone   also show hours in this time zone, e.g. America/New_York
+  --errors F        add error texts (from fetch kibana|victorialogs --errors)        --tz Zone   also show hours in this time zone, e.g. America/New_York
   --baseline F --fail-on new-shadow,deprecated-growth   CI mode (exit 1)   --write-baseline F   save the current shadow list`,
   spec: `api-dead-ends spec from-routes <routes.txt|json> [--title T] [-o openapi.json]
 api-dead-ends spec from-next <next.js dir> [--title T] [-o openapi.json]
@@ -334,8 +342,21 @@ try {
     const csv = toCsv([...acc.values()].sort((a, b) => b.calls - a.calls));
     if (v.out) { await writeFile(v.out, csv); console.error(`${acc.size} rows → ${v.out}`); } else process.stdout.write(csv);
     if (skipped.length) console.error(`WARNING: ${skipped.length} time windows skipped — usage table is incomplete.`);
+  } else if (cmd === 'fetch' && pos[1] === 'victorialogs') {
+    if (!v.url) fail('Usage: api-dead-ends fetch victorialogs --url http://<victoria-logs>:9428 [--service X] [--days 7] [--hourly] [--errors errors.json] [-o usage.csv]');
+    const { fetchVictoriaLogs, httpRequest } = await import('../src/adapters/vlogs.mjs');
+    const { rows, truncated, errors } = await fetchVictoriaLogs(httpRequest(String(v.url), { tenant: v.tenant }), { ...fields, days: v.days ? Number(v.days) : 7,
+      errors: !!v.errors, errorHours: v['error-hours'] ? Number(v['error-hours']) : 24, traceField: v['trace-field'], errorField: v['error-field'],
+      maxRows: v['max-rows'] ? Number(v['max-rows']) : undefined, log: (m) => console.error(m) });
+    if (v.errors && errors) { await writeSafe(String(v.errors), JSON.stringify(errors, null, 2) + '\n'); console.error(`Error texts for ${errors.endpoints.length} endpoints → ${v.errors}`); }
+    /** @type {Map<string, any>} */
+    const acc = new Map();
+    for (const r of rows) addRow(acc, r, { keep, daily: v.daily, hourly: v.hourly });
+    const csv = toCsv([...acc.values()].sort((a, b) => b.calls - a.calls));
+    if (v.out) { await writeFile(v.out, csv); console.error(`${acc.size} rows → ${v.out}`); } else process.stdout.write(csv);
+    if (truncated.length) console.error(`WARNING: ${truncated.length} day(s) cut at --max-rows — usage table is incomplete.`);
   } else if (cmd === 'fetch') {
-    if (pos[1] !== 'elasticsearch' || !v.url || !v.index) fail('Usage: api-dead-ends fetch elasticsearch --url <es-url> --index <pattern> [--service X]\n       api-dead-ends fetch kibana --url "<Kibana Discover URL>" --service X   (log in in the browser; needs Playwright)');
+    if (pos[1] !== 'elasticsearch' || !v.url || !v.index) fail('Usage: api-dead-ends fetch elasticsearch --url <es-url> --index <pattern> [--service X]\n       api-dead-ends fetch victorialogs --url http://<victoria-logs>:9428 [--service X]\n       api-dead-ends fetch kibana --url "<Kibana Discover URL>" --service X   (log in in the browser; needs Playwright)');
     const key = process.env.ES_API_KEY;
     const search = async (/** @type {any} */ body) => {
       const r = await fetch(`${String(v.url).replace(/\/$/, '')}/${encodeURIComponent(String(v.index))}/_search`, {

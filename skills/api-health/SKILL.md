@@ -1,6 +1,6 @@
 ---
 name: api-health
-description: Find broken (5xx), unused ("not seen"), undocumented (shadow) and deprecated-but-used API endpoints from aggregated traffic with the api-dead-ends tools. Use when the user asks what is broken or unused in their API, wants to compare traffic with an OpenAPI spec, or wants to set up api-dead-ends in a repository.
+description: Find what changed today (5xx since which hour, traffic, error texts), broken (5xx), unused ("not seen"), undocumented (shadow) and deprecated-but-used API endpoints from aggregated traffic with the api-dead-ends tools. Use when the user asks what is broken or unused in their API, wants to compare traffic with an OpenAPI spec, or wants to set up api-dead-ends in a repository.
 ---
 
 # API health with api-dead-ends
@@ -19,6 +19,14 @@ Call `analyze_usage` with the usage table (or the saved response + source) and t
 1. **Server errors** — endpoint, 5xx count, share. Then look for the handler in the code and suggest a likely cause and a fix as a diff (do not apply without OK).
 2. **Shadow** — in traffic, not in the spec: either document them or find who calls them.
 3. **Not seen / rare / deprecated in use** — as recommendations only.
+
+## Something broke today (incident)
+The human runs the export (it touches production): `fetch kibana|victorialogs … --days 3 --hourly --errors errors.json -o usage.csv`, then `report --usage usage.csv --spec … --include-today --errors errors.json --tz <their zone> --out .api-dead-ends/`. Read `report.json` → `changes` and `errors`, and answer in this order:
+1. **What changed** — endpoints in `changes.errorsUp`: 5xx today vs before.
+2. **When it started** — `firstErrorHour` (UTC; give the human's time zone too). Ask for the release time and say whether they line up; a line-up is a hint, not proof.
+3. **Error texts** — `errors.endpoints[].messages` with one example trace each; then find the code that writes that text and suggest a cause.
+4. **Traffic** — `changes.totals` (requests vs the same hours before), `changes.load` (peak req/s), `changes.loadAndErrors` (calls and 5xx up together: retries, client loops, exhausted pools), `callsUp` / `appeared` / `vanished`.
+5. **Neighbours** — ask whether to run the same for the services around it (gateway, callers).
 
 ## Rules
 - "Not seen" is never proof that an endpoint is dead: it may be rare (monthly jobs, partners, old app versions) or **not logged**. Always state the window length and confidence; never delete or deprecate on your own.

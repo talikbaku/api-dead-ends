@@ -86,6 +86,10 @@ export function toMarkdown(r, opt = {}) {
     sec(`What changed today (${ch.today}, 00:00–${String(ch.upToHour).padStart(2, '0')}:59 UTC vs the same hours before)`, ['', 'Today', 'Before (avg)', 'Change'],
       [['Requests', f1(ch.totals.calls), f1(ch.totals.callsBefore), ratio(ch.totals.calls, ch.totals.callsBefore)], ['5xx', f1(ch.totals.e5), f1(ch.totals.e5Before), ratio(ch.totals.e5, ch.totals.e5Before)]],
       ch.note);
+    if (ch.load) L.push(`Load: peak ${ch.load.peakRps.toFixed(1)} req/s at ${hourLabel(ch.today, ch.load.peakHour, opt.tz)} (before: ${ch.load.peakRpsBefore.toFixed(1)} req/s at ${hourLabel(ch.today, ch.load.peakHourBefore, opt.tz)}).`, '');
+    if (ch.loadAndErrors?.length) sec('Calls and 5xx up together', ['Method', 'Path', 'Calls change', '5xx today', 'Before (avg)', 'Peak req/s'],
+      ch.loadAndErrors.slice(0, TOP).map((/** @type {any} */ x) => [txt(x.method), code(x.path), ratio(x.calls, x.callsBefore), f1(x.e5), f1(x.e5Before), x.peakRps.toFixed(2)]),
+      'More calls on an endpoint that now fails: retries, a client loop or an exhausted pool are common causes.');
     if (ch.errorsUp.length) sec('5xx up today', ['Method', 'Path', '5xx today', 'Before (avg)', 'Started', 'Calls change'],
       ch.errorsUp.slice(0, TOP).map((/** @type {any} */ x) => [txt(x.method), code(x.path), f1(x.e5), f1(x.e5Before), x.firstErrorHour == null ? '—' : hourLabel(ch.today, x.firstErrorHour, opt.tz), ratio(x.calls, x.callsBefore)]));
     if (ch.clientErrorsUp.length) sec('4xx up today', ['Method', 'Path', '4xx today', 'Before (avg)'],
@@ -175,6 +179,8 @@ export function toTerminal(r, opt = {}) {
     L.push(`${c.b}Δ Today vs the same hours before: requests ${pc(ch.totals.calls, ch.totals.callsBefore)}, 5xx ${n(ch.totals.e5)} (before ${n(Math.round(ch.totals.e5Before))})${c.x}`);
     for (const x of ch.errorsUp.slice(0, top)) L.push(row(x.method, x.path, `${n(x.e5)} × 5xx (before ${n(Math.round(x.e5Before))})${x.firstErrorHour == null ? '' : `, from ${hourLabel(ch.today, x.firstErrorHour, opt.tz)}`}`));
     for (const x of ch.callsUp.slice(0, 2)) L.push(row(x.method, x.path, `calls ${pc(x.calls, x.callsBefore)}`));
+    if (ch.load) L.push(`${c.d}  peak ${ch.load.peakRps.toFixed(1)} req/s at ${hourLabel(ch.today, ch.load.peakHour, opt.tz)} (before ${ch.load.peakRpsBefore.toFixed(1)})${c.x}`);
+    for (const x of (ch.loadAndErrors || []).slice(0, 2)) L.push(row(x.method, x.path, `calls ${pc(x.calls, x.callsBefore)} and 5xx up together`));
   }
   const sp = opt.spikes || [];
   sec(c.r, `▲ Recent spikes: ${sp.length}`, sp.map((x) => row(x.method, x.path, `${(x.share * 100).toFixed(1)}% 5xx in the last ${x.window} day${x.window === 1 ? '' : 's'} (before: ${(x.wholeShare * 100).toFixed(1)}%)`)), sp.length);
