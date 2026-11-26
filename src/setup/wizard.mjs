@@ -7,6 +7,7 @@ import { createInterface } from 'node:readline';
 import { writeFile, mkdir, readdir, rmdir, lstat } from 'node:fs/promises';
 import { join, basename, resolve, relative } from 'node:path';
 import { detectProject } from './detect.mjs';
+import { NPX, MCP_PKG } from '../dist.mjs';
 import { SOURCES, recommendSource, promPreset, buildSteps, renderNextSteps, renderAgentPrompt, safeName } from './plan.mjs';
 
 /**
@@ -132,8 +133,8 @@ export async function runInit(io) {
     say('');
     say('MCP config (Cursor, VS Code, Claude Desktop, Windsurf) — add to your client settings:');
     const local = config.cmd && config.cmd.startsWith('node ') ? config.cmd.slice(5) : '';
-    say(JSON.stringify({ mcpServers: { ade: local ? { command: 'node', args: [resolve(root, local), 'mcp'] } : { command: 'npx', args: ['-y', 'api-dead-ends@0.2.0', 'mcp'] } } }, null, 2));
-    say(`Claude Code: claude mcp add ade -- ${local ? `node ${resolve(root, local)}` : 'npx -y api-dead-ends@0.2.0'} mcp`);
+    say(JSON.stringify({ mcpServers: { ade: local ? { command: 'node', args: [resolve(root, local), 'mcp'] } : { command: 'npx', args: ['-y', MCP_PKG, 'mcp'] } } }, null, 2));
+    say(`Claude Code: claude mcp add ade -- ${local ? `node ${resolve(root, local)}` : `npx -y ${MCP_PKG}`} mcp`);
   }
   if (json) io.out.write(JSON.stringify({ config, steps: buildSteps(config), files: files.map(([p]) => p) }, null, 2) + '\n');
   return 0;
@@ -173,12 +174,12 @@ function pick(list, a) {
 
 
 /**
- * How the user ran us: `npx api-dead-ends` when installed from npm, otherwise `node <path to bin>` (local checkout).
+ * How the user ran us: the npx form (dist.mjs) when run through npx, otherwise `node <path to bin>` (local checkout).
  * @param {string} root
  */
 function invocation(root) {
   const bin = process.argv[1] || '';
-  if (/[\\/](_npx|node_modules)[\\/]/.test(bin) || !bin) return 'npx api-dead-ends';
+  if (/[\\/](_npx|node_modules)[\\/]/.test(bin) || !bin) return NPX;
   const rel = relative(root, bin);
   return `node ${rel.startsWith('..') && rel.split('/').length > 4 ? bin : rel}`;
 }

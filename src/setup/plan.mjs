@@ -2,6 +2,7 @@
 // What the setup wizard knows: traffic sources, how to get a route list per framework,
 // and how to turn answers into concrete commands that exist today.
 
+import { NPX } from '../dist.mjs';
 /**
  * @typedef {{ id: string, label: string, verified: boolean, history: string, defaultDays: number, access: string[], env?: string[], hint: string }} SourceInfo
  */
@@ -104,7 +105,7 @@ export function safeName(s) {
  * @returns {Array<{ service: string, steps: Array<{ title: string, cmd?: string, note?: string }> }>}
  */
 export function buildSteps(c) {
-  const ade = c.cmd || 'npx api-dead-ends';
+  const ade = c.cmd || NPX;
   return c.services.map((s0) => {
     const s = { ...s0, name: safeName(s0.name) };
     // c.out is set by our code (default .api-dead-ends); keep the leading dot so outputs stay under the git-ignored folder
@@ -217,8 +218,8 @@ Config: \`api-dead-ends.config.json\`. Steps: \`.api-dead-ends/NEXT-STEPS.md\`.
 - Never commit \`.api-dead-ends/\` outputs unless the human asks: they may contain internal paths.
 
 ## Commands
-- \`${c.cmd || 'npx api-dead-ends'} --help\`
-- \`${c.cmd || 'npx api-dead-ends'} spec from-routes <routes.txt|json> -o openapi.json\` — spec from a framework route list
-- \`${c.cmd || 'npx api-dead-ends'} report --usage <usage.csv> --spec <openapi.json> --out <dir>\`
+- \`${c.cmd || NPX} --help\`
+- \`${c.cmd || NPX} spec from-routes <routes.txt|json> -o openapi.json\` — spec from a framework route list
+- \`${c.cmd || NPX} report --usage <usage.csv> --spec <openapi.json> --out <dir>\`
 `;
 }

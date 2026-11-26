@@ -1,7 +1,6 @@
 # api-dead-ends
 
 [![test](https://github.com/talikbaku/api-dead-ends/actions/workflows/test.yml/badge.svg)](https://github.com/talikbaku/api-dead-ends/actions/workflows/test.yml)
-[![npm](https://img.shields.io/npm/v/api-dead-ends)](https://www.npmjs.com/package/api-dead-ends)
 [![MCP server](https://img.shields.io/badge/MCP-server-6E56CF)](#-ai-agents-mcp-utcp)
 [![Claude Code plugin](https://img.shields.io/badge/Claude%20Code-plugin-D97757)](#-ai-agents-mcp-utcp)
 [![UTCP](https://img.shields.io/badge/UTCP-manual-2E7D32)](#-ai-agents-mcp-utcp)
@@ -22,7 +21,7 @@ OpenAPI vs real traffic: compares your spec (or your framework's route list) wit
 Set up api-dead-ends for me (https://github.com/talikbaku/api-dead-ends) — a local CLI and MCP server (never changes code) that compares my OpenAPI spec (or route list) with real traffic and lists endpoints with errors, endpoints not called in the window, and undocumented (shadow) endpoints.
 1. Check Node.js >= 20 (22+ recommended); tell me how to install it if missing.
 2. Claude Code: /plugin marketplace add talikbaku/api-dead-ends then /plugin install api-dead-ends@api-dead-ends-marketplace
-   Cursor or another MCP client: add server "ade" = {"command":"npx","args":["-y","api-dead-ends@0.2.0","mcp"]}
+   Cursor or another MCP client: add server "ade" = {"command":"npx","args":["-y","github:talikbaku/api-dead-ends#v0.2.0","mcp"]}
 3. Run detect_project, tell me which services, specs and traffic sources you found, and ask what's missing in one block.
 4. Rules: never paste raw logs into the chat, never call non-GET endpoints in production, never call an endpoint "dead" — "not called" is only a hint.
 Short docs: https://github.com/talikbaku/api-dead-ends/blob/main/llms.txt
@@ -64,7 +63,11 @@ flowchart LR
 
 ## 🚀 Quick start
 
-Node.js 20+ (22+ recommended). No install, no dependencies:
+Node.js 20+ (22+ recommended). No install, no dependencies.
+
+> [!IMPORTANT]
+> **Not on npm yet.** Until it is, replace `npx api-dead-ends` with `npx github:talikbaku/api-dead-ends` in every command below (same code, run straight from this repo).
+
 
 ```bash
 npx api-dead-ends init
@@ -83,6 +86,8 @@ npx api-dead-ends report --usage usage.csv --spec openapi.json --include-today -
 ```
 
 The report then says which endpoints got 5xx today and **from which hour** (in your time zone too — compare with your release time), total traffic and peak req/s against the same hours before, endpoints whose **calls and 5xx went up together** (retries, client loops), new and vanished endpoints, and the **error texts** behind the 5xx (from the same traces, IDs masked).
+
+**Need a load test with the same mix?** [logs2k6](https://github.com/talikbaku/logs2k6) (early, v0.1) turns this hourly `usage.csv` into a k6 script with the real endpoint mix and the peak-hour rate.
 
 **Already have an export** from Kibana, Datadog, Prometheus…? Two commands:
 
@@ -148,7 +153,7 @@ From the synthetic demo in [`examples/`](examples/) — [full report](examples/r
 **Cursor, VS Code, Windsurf, Claude Desktop** — any MCP client:
 
 ```json
-{ "mcpServers": { "ade": { "command": "npx", "args": ["-y", "api-dead-ends@0.2.0", "mcp"] } } }
+{ "mcpServers": { "ade": { "command": "npx", "args": ["-y", "github:talikbaku/api-dead-ends#v0.2.0", "mcp"] } } }
 ```
 
 Seven tools: `detect_project`, `setup_plan`, `build_query`, `spec_from_routes`, `analyze_usage` read inside the working directory; `init` and `write_report` write only `api-dead-ends.config.json` and files under `.api-dead-ends/` (never your code, never an existing file outside it).
@@ -190,8 +195,8 @@ All data in `examples/` is synthetic.
 
 ## 📚 More
 
-**Status:** v0.2.0. [docs/MORE.md](docs/MORE.md) — all flags, thresholds, path templating, framework route lists, no-logs options, FAQ · [docs/SOURCES.md](docs/SOURCES.md) — every source · [docs/MCP.md](docs/MCP.md) · [docs/SECURITY.md](docs/SECURITY.md) · [CHANGELOG.md](CHANGELOG.md)
+**Status:** v0.2.0, not on npm yet (use `npx github:talikbaku/api-dead-ends`). [docs/MORE.md](docs/MORE.md) — all flags, thresholds, path templating, framework route lists, no-logs options, FAQ · [docs/SOURCES.md](docs/SOURCES.md) — every source · [docs/MCP.md](docs/MCP.md) · [docs/SECURITY.md](docs/SECURITY.md) · [CHANGELOG.md](CHANGELOG.md)
 
 **Try it on your traffic and tell me what broke** — [open an issue](https://github.com/talikbaku/api-dead-ends/issues). Useful? ⭐ Star the repo.
 
-[MIT](LICENSE) © 2026 Talat Gurbanbayov · also by the author: [curl2k6](https://github.com/talikbaku/curl2k6) — k6 performance regression checks from a curl
+[MIT](LICENSE) © 2026 Talat Gurbanbayov · also by the author: [logs2k6](https://github.com/talikbaku/logs2k6) — a k6 load test from the same usage table · [curl2k6](https://github.com/talikbaku/curl2k6) — k6 performance regression checks from a curl

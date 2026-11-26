@@ -402,3 +402,13 @@ test('error fields: the field this service fills wins over an empty one', async 
   const agg = new Set(['trace.id', 'x-trace-id', 'error.message.keyword']);
   assert.equal(pickErrorFields(agg, new Map([['trace.id', 0], ['x-trace-id', 900], ['error.message', 50]])).traceField, 'x-trace-id');
 });
+
+test('dist: one place for the npx command and the pinned MCP package; version matches package.json', async () => {
+  const { NPX, MCP_PKG, VERSION, ON_NPM } = await import('../src/dist.mjs');
+  const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+  assert.equal(VERSION, pkg.version);
+  if (ON_NPM) { assert.equal(NPX, 'npx api-dead-ends'); assert.equal(MCP_PKG, `api-dead-ends@${pkg.version}`); }
+  else { assert.equal(NPX, 'npx github:talikbaku/api-dead-ends'); assert.equal(MCP_PKG, `github:talikbaku/api-dead-ends#v${pkg.version}`); }
+  const docs = ['README.md', 'llms.txt', 'docs/MCP.md'].map((f) => readFileSync(new URL('../' + f, import.meta.url), 'utf8')).join('\n');
+  assert.equal(docs.includes(MCP_PKG), true);
+});
