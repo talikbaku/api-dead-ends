@@ -7,6 +7,7 @@
 
 import { loadPlaywright } from '../probe.mjs';
 import { collect } from './elasticsearch.mjs';
+import { collectErrors, pickErrorFields } from './errortexts.mjs';
 
 const HDR = { 'kbn-xsrf': 'true', 'content-type': 'application/json', 'x-elastic-internal-origin': 'Kibana' };
 const CANDIDATES = {
@@ -16,7 +17,7 @@ const CANDIDATES = {
 };
 
 /**
- * @param {{ url: string, service: string, days?: number, daily?: boolean, dataView?: string, loginTimeoutMin?: number,
+ * @param {{ url: string, service: string, days?: number, daily?: boolean, hourly?: boolean, errors?: boolean, errorHours?: number, traceField?: string, errorField?: string, dataView?: string, loginTimeoutMin?: number,
  *   methodField?: string, pathField?: string, statusField?: string, serviceField?: string, excludeFilter?: string, accessFilter?: string,
  *   keep?: string[], log?: (s: string) => void }} o
  */
@@ -72,7 +73,20 @@ export async function fetchKibana(o) {
     const F = { methodField: pick('method', o.methodField), pathField: pick('path', o.pathField), statusField: pick('status', o.statusField) };
     if (!F.pathField) throw new Error(`no path field found for service "${o.service}" — pass --path-field`);
     log(`Fields: ${F.methodField} · ${F.pathField} · ${F.statusField}`);
-    return await collect(search, { ...o, ...F, serviceField: svcField, timeField, days: o.days ?? 15, onProgress: log, rawPath: /http\.route/.test(String(F.pathField)) });
+    const res = await collect(search, { ...o, ...F, serviceField: svcField, timeField, days: o.days ?? 15, onProgress: log, rawPath: /http\.route/.test(String(F.pathField)) });
+    /** @type {any} */
+    let errors = null;
+    if (o.errors) {
+      const ef = pickErrorFields(agg);
+      const traceField = o.traceField || ef.traceField, errorField = o.errorField || ef.errorField;
+      if (!traceField || !errorField) log('Error texts skipped: no trace or error-message field found (pass --trace-field / --error-field).');
+      else {
+        log(`Error texts: ${errorField} via ${traceField}, last ${o.errorHours ?? 24} h…`);
+        errors = await collectErrors(search, { ...o, ...F, serviceField: svcField, timeField, traceField, errorField, hours: o.errorHours ?? 24, rawPath: /http\.route/.test(String(F.pathField)),
+          methodField: String(F.methodField), pathField: String(F.pathField), statusField: String(F.statusField) });
+      }
+    }
+    return { ...res, errors };
   } finally {
     await browser.close();
   }

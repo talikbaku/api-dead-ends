@@ -22,6 +22,7 @@ const ALIASES = {
   first_seen: ['first_seen', 'firstseen', 'min_time', 'first', 'min(_time)', 'earliest'],
   last_seen: ['last_seen', 'lastseen', 'max_time', 'last', 'max(_time)', 'latest'],
   day: ['day', 'date', '_time'],
+  hour: ['hour'],
 };
 
 export const csv = {
@@ -57,8 +58,9 @@ export const csv = {
       if (!method && /^[A-Z]+ \//.test(path)) [method, path] = [path.split(' ')[0], path.slice(path.indexOf(' ') + 1)];
       const calls = idx.calls >= 0 ? Number(get('calls')) || 0 : 1;
       const st = get('status');
-      const day = iso(get('day'));
-      return { method, path, calls, first_seen: iso(get('first_seen')) || day, last_seen: iso(get('last_seen')) || day, status: !st ? '' : st.includes(':') ? st : `${st}:${calls}`, ...(day ? { day: day.slice(0, 10) } : {}) };
+      const hour = /^\d{4}-\d\d-\d\dT\d\d/.test(get('hour')) ? get('hour').slice(0, 13) : '';
+      const day = iso(get('day')) || (hour ? `${hour}:00:00.000Z` : '');
+      return { method, path, calls, first_seen: iso(get('first_seen')) || day, last_seen: iso(get('last_seen')) || day, status: !st ? '' : st.includes(':') ? st : `${st}:${calls}`, ...(day ? { day: day.slice(0, 10) } : {}), ...(hour ? { hour } : {}) };
     });
   },
 };

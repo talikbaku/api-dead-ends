@@ -6,7 +6,7 @@
 import { templatePath } from './template.mjs';
 
 /**
- * @typedef {{ method: string, path: string, calls: number, first_seen: string, last_seen: string, status: Map<string, number>, day?: string }} UsageRow
+ * @typedef {{ method: string, path: string, calls: number, first_seen: string, last_seen: string, status: Map<string, number>, day?: string, hour?: string }} UsageRow
  */
 
 /** @param {string} s */
@@ -32,7 +32,7 @@ export function formatStatus(m) {
  * Add a row to the map, merging by method+path (after path templating).
  * @param {Map<string, UsageRow>} acc
  * @param {{ method?: string, path: string, calls: number|string, first_seen?: string, last_seen?: string, status?: string|Map<string, number> }} r
- * @param {{ template?: boolean, keep?: Set<string>, daily?: boolean, dayFromTime?: boolean }} [opt]
+ * @param {{ template?: boolean, keep?: Set<string>, daily?: boolean, hourly?: boolean, dayFromTime?: boolean }} [opt]
  */
 export function addRow(acc, r, opt = {}) {
   // Everything below comes from logs, i.e. from whoever sent the requests: keep it inert.
@@ -42,12 +42,14 @@ export function addRow(acc, r, opt = {}) {
   const calls = Number(String(r.calls ?? '').replace(/[,_\s]/g, '')) || 0;
   // With opt.daily, rows stay split per UTC day (YYYY-MM-DD) so reports can show 30/7/3/1-day windows.
   // the day comes from an explicit `day` field; raw events (access logs, per-day adapters) may derive it from their timestamp
-  const day = opt.daily ? dayOf(r.day || (opt.dayFromTime ? r.first_seen : '')) : '';
-  const key = day ? `${method} ${path} ${day}` : `${method} ${path}`;
-  const o = acc.get(key) || { method, path, calls: 0, first_seen: '', last_seen: '', status: new Map(), ...(day ? { day } : {}) };
+  // With opt.hourly, rows are split per UTC hour ('YYYY-MM-DDTHH'); the day follows from the hour.
+  const hour = opt.hourly ? hourOf(r.hour || (opt.dayFromTime ? r.first_seen : '')) : '';
+  const day = hour ? hour.slice(0, 10) : opt.daily || opt.hourly ? dayOf(r.day || (r.hour ? String(r.hour).slice(0, 10) : '') || (opt.dayFromTime ? r.first_seen : '')) : '';
+  const key = hour ? `${method} ${path} ${hour}` : day ? `${method} ${path} ${day}` : `${method} ${path}`;
+  const o = acc.get(key) || { method, path, calls: 0, first_seen: '', last_seen: '', status: new Map(), ...(day ? { day } : {}), ...(hour ? { hour } : {}) };
   o.calls += calls;
   // a per-day row without timestamps still tells us its day
-  const dayTs = day ? `${day}T00:00:00.000Z` : '';
+  const dayTs = hour ? `${hour}:00:00.000Z` : day ? `${day}T00:00:00.000Z` : '';
   const fs = isoOrEmpty(r.first_seen) || dayTs, ls = isoOrEmpty(r.last_seen) || dayTs;
   if (fs && (!o.first_seen || fs < o.first_seen)) o.first_seen = fs;
   if (ls && ls > o.last_seen) o.last_seen = ls;
@@ -61,7 +63,7 @@ export function addRow(acc, r, opt = {}) {
 
 /**
  * @param {string} text CSV, JSON (array) or JSONL
- * @param {{ keep?: Set<string>, daily?: boolean }} [opt]  daily: keep the per-day split if the input has a day column
+ * @param {{ keep?: Set<string>, daily?: boolean, hourly?: boolean }} [opt]  keep the per-day / per-hour split if the input has those columns
  * @returns {UsageRow[]}
  */
 export function parseUsage(text, opt = {}) {
@@ -87,6 +89,14 @@ export function parseUsage(text, opt = {}) {
     }
   }
   return [...acc.values()];
+}
+
+/** @param {unknown} v → 'YYYY-MM-DDTHH' (UTC) or '' */
+function hourOf(v) {
+  const s = String(v || '');
+  if (/^\d{4}-\d\d-\d\dT\d\d$/.test(s)) return s;
+  const iso = isoOrEmpty(s);
+  return iso ? iso.slice(0, 13) : '';
 }
 
 /** @param {unknown} v → 'YYYY-MM-DD' or '' */
@@ -115,13 +125,14 @@ function isoOrEmpty(v) {
 /** @param {UsageRow[]} rows */
 export function toCsv(rows) {
   const daily = rows.some((r) => r.day);
-  const cols = ['method', 'path', 'calls', 'first_seen', 'last_seen', 'status', ...(daily ? ['day'] : [])];
+  const hourly = rows.some((r) => r.hour);
+  const cols = ['method', 'path', 'calls', 'first_seen', 'last_seen', 'status', ...(daily ? ['day'] : []), ...(hourly ? ['hour'] : [])];
   const q = (/** @type {unknown} */ v) => {
     let s = String(v ?? '');
     if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`; // spreadsheet formula injection
     return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
-  const lines = rows.map((r) => [r.method, r.path, r.calls, r.first_seen, r.last_seen, formatStatus(r.status), ...(daily ? [r.day || ''] : [])].map(q).join(','));
+  const lines = rows.map((r) => [r.method, r.path, r.calls, r.first_seen, r.last_seen, formatStatus(r.status), ...(daily ? [r.day || ''] : []), ...(hourly ? [r.hour || ''] : [])].map(q).join(','));
   return [cols.join(','), ...lines].join('\n') + '\n';
 }
 

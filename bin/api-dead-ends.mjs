@@ -99,9 +99,9 @@ try {
     yes: { type: 'boolean', short: 'y' }, json: { type: 'boolean' }, 'dry-run': { type: 'boolean' }, force: { type: 'boolean' },
     source: { type: 'string' }, services: { type: 'string' }, routes: { type: 'string' }, access: { type: 'string' }, ai: { type: 'string' },
     files: { type: 'string' }, logs: { type: 'string' }, dir: { type: 'string' }, 'log-name': { type: 'string' },
-    response: { type: 'string' }, daily: { type: 'boolean' }, html: { type: 'boolean' },
+    response: { type: 'string' }, daily: { type: 'boolean' }, hourly: { type: 'boolean' }, tz: { type: 'string' }, errors: { type: 'string' }, html: { type: 'boolean' },
     duplicates: { type: 'string' }, reference: { type: 'string' }, 'include-today': { type: 'boolean' }, 'dup-window': { type: 'string' },
-    pages: { type: 'string' }, 'api-host': { type: 'string' }, login: { type: 'boolean' }, headed: { type: 'boolean' }, probe: { type: 'string' }, 'slow-ms': { type: 'string' }, 'error-min': { type: 'string' }, 'error-share': { type: 'string' }, title: { type: 'string' },
+    pages: { type: 'string' }, 'api-host': { type: 'string' }, 'error-hours': { type: 'string' }, 'trace-field': { type: 'string' }, 'error-field': { type: 'string' }, login: { type: 'boolean' }, headed: { type: 'boolean' }, probe: { type: 'string' }, 'slow-ms': { type: 'string' }, 'error-min': { type: 'string' }, 'error-share': { type: 'string' }, title: { type: 'string' },
   },
   });
 } catch (e) {
@@ -127,7 +127,7 @@ api-dead-ends.config.json and .api-dead-ends/NEXT-STEPS.md. Never changes code, 
 Without a terminal, pass answers on stdin (one per line) or use --yes.`;
 
 const fields = {
-  daily: v.daily,
+  daily: v.daily, hourly: v.hourly,
   service: v.service, days: v.days ? Number(v.days) : undefined, index: v.index, metric: v.metric, preset: v.preset, map: v.map,
   methodField: v['method-field'], pathField: v['path-field'], statusField: v['status-field'],
   serviceField: v['service-field'], timeField: v['time-field'], accessFilter: v['access-filter'], excludeFilter: v['exclude-filter'], rawPath: v['raw-path'],
@@ -155,19 +155,23 @@ Field overrides: --method-field --path-field --status-field --service-field --ti
 Turns saved responses into a usage table (method,path,calls,first_seen,last_seen,status[,day]).
   --spec       keep literal segments of your spec (v1beta1, oauth2…) instead of folding them into {id}
   --daily      one row per day → 30/7/3/1-day windows and recent spikes in the report
+  --hourly     one row per hour → also "What changed today" (today vs the same hours on previous days)
   --duplicates F [--dup-window 2]   accesslog only: repeated POST/PUT/PATCH/DELETE from the same client
   --preset / --map / field flags as for query`,
   fetch: `api-dead-ends fetch elasticsearch --url URL --index P [--service S] [--days N] [--spec F] [--daily] [-o usage.csv]
 Pulls the usage table straight from Elasticsearch/OpenSearch with a read-only key in ES_API_KEY. 3-hour windows, split on timeout.
-api-dead-ends fetch kibana --url "<Kibana Discover URL>" --service S [--days N] [--daily] [--spec F] [--exclude-filter Q] [-o usage.csv]
+api-dead-ends fetch kibana --url "<Kibana Discover URL>" --service S [--days N] [--daily|--hourly] [--spec F] [--exclude-filter Q] [--errors errors.json] [-o usage.csv]
 Only a browser login to Kibana? A browser opens, you log in, and the tool runs the same read-only aggregation through
-Kibana's Dev Tools proxy with your session (needs Playwright). Nothing is saved to disk. Fields are detected per service.`,
+Kibana's Dev Tools proxy with your session (needs Playwright). Nothing is saved to disk. Fields are detected per service.
+  --hourly           one row per hour → "What changed today" (today vs the same hours on previous days)
+  --errors F         also save error texts behind the top 5xx endpoints (same traces, last --error-hours 24; IDs masked)`,
   report: `api-dead-ends report --usage usage.csv --spec openapi.json [--days N] [--out DIR] [--json]
 Writes report.md, report.json and report.html (with --out), or prints Markdown / JSON.
   --days N          window length when the data has no dates     --rare N         fewer calls = rare (default 100)
   --error-share P   server-error finding: 5xx ≥ P% (default 1)    --error-min N    … and ≥ N responses (default 10)
   --probe F         add probe.json                                 --duplicates F   add duplicates.json
   --include-today   keep today's partial day in the windows (an incident in progress)
+  --errors F        add error texts (from fetch kibana --errors)        --tz Zone   also show hours in this time zone, e.g. America/New_York
   --baseline F --fail-on new-shadow,deprecated-growth   CI mode (exit 1)   --write-baseline F   save the current shadow list`,
   spec: `api-dead-ends spec from-routes <routes.txt|json> [--title T] [-o openapi.json]
 api-dead-ends spec from-next <next.js dir> [--title T] [-o openapi.json]
@@ -305,14 +309,14 @@ try {
     /** @type {Map<string, any>} */
     const acc = new Map();
     if (pos[1] === 'accesslog') {
-      const st = await accesslog.stream(pos.slice(2), (r) => addRow(acc, r, { keep, daily: v.daily, dayFromTime: true }), v.duplicates ? { duplicates: { windowSec: v['dup-window'] ? Number(v['dup-window']) : 2, keep } } : {});
+      const st = await accesslog.stream(pos.slice(2), (r) => addRow(acc, r, { keep, daily: v.daily, hourly: v.hourly, dayFromTime: true }), v.duplicates ? { duplicates: { windowSec: v['dup-window'] ? Number(v['dup-window']) : 2, keep } } : {});
       console.error(`${st.lines} lines read, ${st.bad} not recognized`);
       if (st.duplicates) {
         await writeFile(v.duplicates, JSON.stringify(st.duplicates, null, 2) + '\n');
         console.error(`${st.duplicates.rows.length} endpoints with repeated non-GET requests → ${v.duplicates} (add to the report: report … --duplicates ${v.duplicates})`);
       }
     } else {
-      for (const f of pos.slice(2)) for (const r of src.parse(await readFile(f, 'utf8'), fields)) addRow(acc, r, { keep, daily: v.daily });
+      for (const f of pos.slice(2)) for (const r of src.parse(await readFile(f, 'utf8'), fields)) addRow(acc, r, { keep, daily: v.daily, hourly: v.hourly });
     }
     const csv = toCsv([...acc.values()].sort((a, b) => b.calls - a.calls));
     if (v.out) { await writeFile(v.out, csv); console.error(`${acc.size} method+path pairs → ${v.out}`); } else process.stdout.write(csv);
@@ -321,10 +325,12 @@ try {
   } else if (cmd === 'fetch' && pos[1] === 'kibana') {
     if (!v.url || !v.service) fail('Usage: api-dead-ends fetch kibana --url "<Kibana Discover URL with the data view>" --service <name> [--days 15] [--daily] [--spec F] [-o usage.csv]');
     const { fetchKibana } = await import('../src/adapters/kibana.mjs');
-    const { rows, skipped } = await fetchKibana({ ...fields, url: String(v.url), service: String(v.service), days: v.days ? Number(v.days) : 15, log: (m) => console.error(m) });
+    const { rows, skipped, errors } = await fetchKibana({ ...fields, url: String(v.url), service: String(v.service), days: v.days ? Number(v.days) : 15, log: (m) => console.error(m),
+      errors: !!v.errors, errorHours: v['error-hours'] ? Number(v['error-hours']) : 24, traceField: v['trace-field'], errorField: v['error-field'] });
+    if (v.errors && errors) { await writeSafe(String(v.errors), JSON.stringify(errors, null, 2) + '\n'); console.error(`Error texts for ${errors.endpoints.length} endpoints → ${v.errors}`); }
     /** @type {Map<string, any>} */
     const acc = new Map();
-    for (const r of rows) addRow(acc, r, { keep, daily: v.daily });
+    for (const r of rows) addRow(acc, r, { keep, daily: v.daily, hourly: v.hourly });
     const csv = toCsv([...acc.values()].sort((a, b) => b.calls - a.calls));
     if (v.out) { await writeFile(v.out, csv); console.error(`${acc.size} rows → ${v.out}`); } else process.stdout.write(csv);
     if (skipped.length) console.error(`WARNING: ${skipped.length} time windows skipped — usage table is incomplete.`);
@@ -344,13 +350,15 @@ try {
     const { rows, skipped } = await es.collect(search, { ...fields, windowHours: v['window-hours'] ? Number(v['window-hours']) : 3, onProgress: (m) => console.error(m) });
     /** @type {Map<string, any>} */
     const acc = new Map();
-    for (const r of rows) addRow(acc, r, { keep, daily: v.daily });
+    for (const r of rows) addRow(acc, r, { keep, daily: v.daily, hourly: v.hourly });
     const csv = toCsv([...acc.values()].sort((a, b) => b.calls - a.calls));
     if (v.out) await writeFile(v.out, csv); else process.stdout.write(csv);
     if (skipped.length) console.error(`WARNING: ${skipped.length} time windows skipped — usage table is incomplete.`);
   } else if (cmd === 'report') {
     if (!v.usage || !spec) fail('Usage: api-dead-ends report --usage <usage.csv> --spec <openapi.json>\n  usage.csv comes from `convert` or `fetch` (traffic data). No spec? `api-dead-ends spec from-routes <routes.txt>`. Not sure where to start? `api-dead-ends init`.');
-    const dailyRows = parseUsage(await readFile(v.usage, 'utf8'), { keep, daily: true });
+    const usageText = await readFile(v.usage, 'utf8');
+    const dailyRows = parseUsage(usageText, { keep, daily: true });
+    const hourlyRows = parseUsage(usageText, { keep, hourly: true });
     const hasDays = dailyRows.some((x) => x.day);
     const rows = hasDays ? [...dailyRows.reduce((acc, x) => addRow(acc, { ...x, day: undefined }, { template: false }), new Map()).values()] : dailyRows;
     if (!rows.reduce((a, x) => a + x.calls, 0)) fail(`No traffic in ${v.usage}: 0 requests. Every endpoint would look "not seen", which says nothing. Check the query, the service name and the window.`);
@@ -369,7 +377,10 @@ try {
     if (win && v.days && Number(v.days) !== win.windows.all.window.days) console.error(`Note: the data covers ${win.windows.all.window.days} days; --days ${v.days} is ignored for per-day data.`);
     if (win?.droppedToday) console.error('Note: today is incomplete and left out of the windows (add --include-today to look at an incident in progress).');
     const r = win ? win.windows.all : classify(rows, spec, { ...cOpt, days: num('days', 1, 3650) });
-    const extra = { spikes: win?.spikes || [], toolVersion: VERSION,
+    const { computeChanges } = await import('../src/changes.mjs');
+    const changes = hourlyRows.some((x) => x.hour) ? computeChanges(hourlyRows, spec) : null;
+    const extra = { spikes: win?.spikes || [], toolVersion: VERSION, changes, tz: v.tz,
+      errors: v.errors ? JSON.parse(await readFile(v.errors, 'utf8')) : null,
       probe: v.probe ? JSON.parse(await readFile(v.probe, 'utf8')) : null,
       duplicates: v.duplicates ? JSON.parse(await readFile(v.duplicates, 'utf8')) : null };
     const md = toMarkdown(r, extra);
@@ -382,7 +393,7 @@ try {
         await writeSafe(join(v.out, 'report.html'), toHtml(r, { ...extra, win }));
       }
       const t = r.totals;
-      console.error(toTerminal(r, { color: process.stderr.isTTY && !process.env.NO_COLOR, spikes: extra.spikes }) + '\n');
+      console.error(toTerminal(r, { color: process.stderr.isTTY && !process.env.NO_COLOR, spikes: extra.spikes, changes: extra.changes, tz: v.tz }) + '\n');
       console.error(`${t.operations} operations: server errors ${t.serverErrors} (+${t.serverErrorsBelowThreshold} below threshold), undocumented ${t.shadow}${t.ambiguous ? ` (${t.ambiguous} a word on a parameter)` : ''}, not called ${t.not_seen}, rare ${t.rare}, deprecated in use ${t.deprecated_in_use}, used ${t.used} → ${join(v.out, 'report.md')} · report.html`);
     } else process.stdout.write(md);
     if (v['write-baseline']) await writeFile(v['write-baseline'], JSON.stringify(makeBaseline(r), null, 2) + '\n');

@@ -4,6 +4,7 @@
 
 const STR = {
   overview: 'Overview', e5: 'Server errors', e4: 'Client errors', shadow: 'Undocumented', notSeen: 'Not called', dep: 'Deprecated in use',
+  changes: 'What changed today', errorTexts: 'Error texts',
   spikes: 'Recent spikes', dup: 'Duplicates', probe: 'Front-end probe', used: 'All used', rare: 'Rare',
   window: 'Window', all: 'Whole period', days: 'days', day: 'day',
   method: 'Method', path: 'Path', calls: 'Calls', share: 'Share', statuses: 'Statuses', lastSeen: 'Last seen', perDay: 'Per day', note: 'Note',
@@ -15,7 +16,7 @@ const STR = {
 
 /**
  * @param {ReturnType<typeof import('./classify.mjs').classify>} r
- * @param {{ win?: ReturnType<typeof import('./windows.mjs').computeWindows> | null, spikes?: any[], toolVersion?: string, duplicates?: any, probe?: any }} [extra]
+ * @param {{ win?: ReturnType<typeof import('./windows.mjs').computeWindows> | null, spikes?: any[], toolVersion?: string, duplicates?: any, probe?: any, changes?: any, errors?: any, tz?: string }} [extra]
  */
 export function toHtml(r, extra = {}) {
   const win = extra.win || null;
@@ -37,6 +38,9 @@ export function toHtml(r, extra = {}) {
     spikes: extra.spikes || [],
     duplicates: extra.duplicates || null,
     probe: extra.probe || null,
+    changes: extra.changes || null,
+    errors: extra.errors || null,
+    tz: extra.tz || '',
   };
   const json = JSON.stringify(data).replace(/</g, '\\u003c').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
   return `<!doctype html>
@@ -115,7 +119,7 @@ function lists() {
   return { w, E, e5, over: e5.filter((e) => over.has(e.m + ' ' + e.p)), notSeen: E.filter((e) => e.c === 'not_seen'), dep: E.filter((e) => e.c === 'deprecated_in_use'), rare: E.filter((e) => e.c === 'rare') };
 }
 const TABS = [
-  ['overview', () => null], ['spikes', () => D.spikes.length ? [D.spikes.length, 'bad'] : null], ['e5', (l) => [l.over.length, l.over.length ? 'bad' : '']], ['e4', (l) => [l.w.clientErrors.length, l.w.clientErrors.length ? 'warn' : '']],
+  ['overview', () => null], ['changes', () => D.changes ? [D.changes.errorsUp.length, D.changes.errorsUp.length ? 'bad' : ''] : null], ['errorTexts', () => D.errors && D.errors.endpoints.length ? [D.errors.endpoints.length, 'bad'] : null], ['spikes', () => D.spikes.length ? [D.spikes.length, 'bad'] : null], ['e5', (l) => [l.over.length, l.over.length ? 'bad' : '']], ['e4', (l) => [l.w.clientErrors.length, l.w.clientErrors.length ? 'warn' : '']],
   ['shadow', (l) => [l.w.shadow.length, l.w.shadow.length ? 'warn' : '']], ['notSeen', (l) => [l.notSeen.length, '']], ['dep', (l) => [l.dep.length, '']], ['rare', (l) => l.rare.length ? [l.rare.length, ''] : null],
   ['dup', () => D.duplicates ? [D.duplicates.rows.length, 'warn'] : null], ['probe', () => D.probe ? [D.probe.rows.filter((x) => x.problem).length, 'bad'] : null], ['used', (l) => [l.E.filter((e) => e.c === 'used').length, '']],
 ];
@@ -128,7 +132,14 @@ function top(l) {
   for (const e of l.w.shadow.slice(0, 3)) out.push([e.m, e.p, 'undocumented, ' + fmt(e.n) + ' calls', 'shadow']);
   return out.slice(0, 8);
 }
+const hl = (h) => { const u = String(h).padStart(2, '0') + ':00 UTC'; if (!D.tz || !D.changes) return u; try { return u + ' (' + new Intl.DateTimeFormat('en-US', { timeZone: D.tz, hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZoneName: 'short' }).format(new Date(D.changes.today + 'T' + String(h).padStart(2, '0') + ':00:00Z')) + ')'; } catch { return u; } };
+const chg = (a, b) => b ? (a >= b ? '+' : '') + ((a / b - 1) * 100).toFixed(0) + '%' : 'new';
 function view(l) {
+  if (st.tab === 'changes' && D.changes) { const c = D.changes;
+    return [card(S.changes, c.note, table(['Hour', 'Requests', 'Before (avg)', S.share, '5xx', '5xx before'], c.perHour.map((x) => el('tr', {}, el('td', {}, hl(x.hour)), el('td', { class: 'n' }, fmt(x.calls)), el('td', { class: 'n' }, fmt(Math.round(x.callsBefore))), el('td', { class: 'n' }, chg(x.calls, x.callsBefore)), el('td', { class: 'n' }, x.e5 > 5 * x.e5Before + 5 ? el('b', { style: 'color:var(--bad)' }, fmt(x.e5)) : fmt(x.e5)), el('td', { class: 'n' }, fmt(Math.round(x.e5Before))))))),
+      card('5xx up today', null, table([S.path, '5xx today', 'Before', 'Started', 'Calls'], c.errorsUp.map((x) => el('tr', {}, epCell(x.method, x.path), el('td', { class: 'n' }, el('b', {}, fmt(x.e5))), el('td', { class: 'n' }, fmt(Math.round(x.e5Before))), el('td', {}, x.firstErrorHour == null ? '—' : hl(x.firstErrorHour)), el('td', { class: 'n' }, chg(x.calls, x.callsBefore)))))),
+      card('Traffic changes', null, table([S.path, 'Today', 'Before', 'Change'], [...c.callsUp.slice(0, 15), ...c.callsDown.slice(0, 15), ...c.appeared.slice(0, 10), ...c.vanished.slice(0, 10)].map((x) => el('tr', {}, epCell(x.method, x.path), el('td', { class: 'n' }, fmt(x.calls)), el('td', { class: 'n' }, fmt(Math.round(x.callsBefore))), el('td', { class: 'n' }, x.calls === 0 ? 'gone' : chg(x.calls, x.callsBefore))))))]; }
+  if (st.tab === 'errorTexts' && D.errors) return [el('div', { class: 'desc' }, D.errors.note || ''), ...D.errors.endpoints.map((e) => card(e.method + ' ' + e.path + ' — ' + fmt(e.errors5xx) + ' × 5xx', null, table(['Error', 'Records', 'First seen', 'Example trace'], (e.messages || []).map((m) => el('tr', {}, el('td', { class: 'ep' }, m.text), el('td', { class: 'n' }, fmt(m.count)), el('td', { class: 'small' }, String(m.firstSeen || '').slice(0, 19).replace('T', ' ')), el('td', { class: 'ep' }, m.trace || ''))))))];
   const w = l.w, t = w.totals;
   if (st.tab === 'overview') {
     const tile = (k, v, c, go) => el('div', { class: 'tile ' + c, onclick: () => { st.tab = go; render(); } }, el('div', { class: 'k' }, k), el('div', { class: 'v' }, v));

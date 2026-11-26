@@ -133,13 +133,14 @@ export const prometheus = {
     const c = promCfg(o);
     const days = o.days ?? 30;
     const sel = o.service ? `{${c.svc}="${o.service}"}` : '';
-    const q = `sum by (${c.m}, ${c.p}, ${c.s}) (increase(${c.metric}${sel}[1d]))`;
+    const step = /** @type {any} */ (o).hourly ? '1h' : '1d';
+    const q = `sum by (${c.m}, ${c.p}, ${c.s}) (increase(${c.metric}${sel}[${step}]))`;
     return [
       `# Prometheus / Thanos / Mimir / VictoriaMetrics — preset: ${o.preset || 'generic'} (${c.note}).`,
       '# Daily buckets (step=1d) give first/last seen and per-day counts. Presets: ' + Object.keys(PROM_PRESETS).join(', '),
       `curl -sS --get 'http://<prometheus>/api/v1/query_range' \\`,
       `  --data-urlencode 'query=${q}' \\`,
-      `  --data-urlencode "start=$(( $(date +%s) - ${days} * 86400 ))" --data-urlencode "end=$(date +%s)" --data-urlencode 'step=86400' > prometheus.json`,
+      `  --data-urlencode "start=$(( $(date +%s) - ${days} * 86400 ))" --data-urlencode "end=$(date +%s)" --data-urlencode 'step=${/** @type {any} */ (o).hourly ? 3600 : 86400}' > prometheus.json`,
       '# Retention: plain Prometheus often keeps 15 days; Thanos/Mimir/Grafana Cloud keep months — use those for "not seen".',
       `# Then: api-dead-ends convert prometheus prometheus.json${o.preset ? ` --preset ${o.preset}` : ` --method-field ${c.m} --path-field ${c.p} --status-field ${c.s}`}`,
     ].join('\n');
@@ -169,12 +170,12 @@ export const prometheus = {
         let method = lab[c.m] ?? '';
         let path = lab[c.p] ?? lab.route ?? lab.path ?? lab.handler ?? lab.uri ?? '';
         if (!method && /^[A-Z]+ \//.test(path)) [method, path] = [path.split(' ')[0], path.slice(path.indexOf(' ') + 1)];
-        if (o.daily && r.values) {
+        if ((o.daily || o.hourly) && r.values) {
           for (const [ts, val] of r.values) {
             const n = Math.round(Number(val));
             if (!(Number(val) > 0.5) || !n) continue;
             const t = new Date(Number(ts) * 1000).toISOString();
-            out.push({ method, path, calls: n, first_seen: t, last_seen: t, day: t.slice(0, 10), status: st ? `${st}:${n}` : '' });
+            out.push({ method, path, calls: n, first_seen: t, last_seen: t, day: t.slice(0, 10), ...(o.hourly ? { hour: t.slice(0, 13) } : {}), status: st ? `${st}:${n}` : '' });
           }
         } else out.push({ method, path, calls, first_seen: first, last_seen: last, status: st ? `${st}:${calls}` : '' });
       }
@@ -247,7 +248,7 @@ export const victorialogs = {
   query(o = {}) {
     const m = o.methodField || 'method', p = o.pathField || 'path', s = o.statusField || 'status';
     const svc = o.service ? ` ${o.serviceField || 'container_name'}:${o.service}` : '';
-    const by = `${o.daily ? '_time:1d, ' : ''}${m}, ${p}, ${s}`;
+    const by = `${o.hourly ? '_time:1h, ' : o.daily ? '_time:1d, ' : ''}${m}, ${p}, ${s}`;
     const q = `_time:${o.days ?? 15}d${svc} ${m}:* ${p}:* | stats by (${by}) count() calls`;
     return [
       '# VictoriaLogs (LogsQL). Fields: adjust --method-field / --path-field / --status-field to your access-log JSON;',
@@ -270,7 +271,7 @@ export const victorialogs = {
       if (!calls || !path) continue;
       const time = j._time ? String(j._time) : '';
       const st = j[s];
-      out.push({ method: j[m] || '', path: String(path), calls, first_seen: time, last_seen: time, status: st ? `${st}:${calls}` : '', ...(o.daily && time ? { day: time.slice(0, 10) } : {}) });
+      out.push({ method: j[m] || '', path: String(path), calls, first_seen: time, last_seen: time, status: st ? `${st}:${calls}` : '', ...((o.daily || o.hourly) && time ? { day: time.slice(0, 10) } : {}), ...(o.hourly && time ? { hour: time.slice(0, 13) } : {}) });
     }
     if (!out.length && text.trim().startsWith('{') === false) throw new Error('VictoriaLogs: expected JSON lines from /select/logsql/query');
     return out;

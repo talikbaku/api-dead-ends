@@ -331,3 +331,48 @@ test('review fixes: no fake windows without a day column; calendar windows; whol
   assert.match(r.stderr, /--days 90 is ignored/);
   assert.match(readFileSync(join(dir, 'rep/report.html'), 'utf8'), /"7":/, '7-day window exists inside a 10-day span');
 });
+
+test('what changed: today vs the same hours on previous days, first error hour, traffic changes; error texts in the report', () => {
+  const dir = makeRepo();
+  const L = ['method,path,calls,status,hour'];
+  const days = ['2026-11-24', '2026-11-25', '2026-11-26'];
+  for (const d of days) for (let h = 0; h < 12; h++) {
+    const hh = `${d}T${String(h).padStart(2, '0')}`;
+    const today = d === '2026-11-26';
+    L.push(`GET,/api/products,${today ? 1000 : 1000},200:1000,${hh}`);
+    L.push(`POST,/api/cart,500,${today && h >= 9 ? '200:300|500:200' : '200:500'},${hh}`);
+    L.push(`GET,/api/products/7,${today ? 400 : 100},200:${today ? 400 : 100},${hh}`);
+  }
+  writeFileSync(join(dir, 'h.csv'), L.join('\n') + '\n');
+  writeFileSync(join(dir, 'err.json'), JSON.stringify({ note: 'n', endpoints: [{ method: 'POST', path: '/api/cart', errors5xx: 600, messages: [{ text: 'pq: canceling statement due to user request', count: 300, firstSeen: '2026-11-26T09:57:00Z', trace: 'abc' }] }] }));
+  const r = run(dir, ['report', '--usage', 'h.csv', '--spec', 'services/gateway/openapi.json', '--include-today', '--errors', 'err.json', '--tz', 'America/New_York', '--out', 'rep']);
+  assert.equal(r.status, 0, r.stderr);
+  const j = JSON.parse(readFileSync(join(dir, 'rep/report.json'), 'utf8'));
+  const c = j.changes;
+  assert.ok(c, 'changes computed');
+  assert.deepEqual(c.errorsUp.map((x) => [x.path, x.firstErrorHour]), [['/api/cart', 9]]);
+  assert.deepEqual(c.callsUp.map((x) => x.path), ['/api/products/{id}']);
+  const md = readFileSync(join(dir, 'rep/report.md'), 'utf8');
+  assert.match(md, /What changed today/);
+  assert.match(md, /09:00 UTC \(04:00 EST\)/);
+  assert.match(md, /canceling statement/);
+  assert.match(r.stderr, /Today vs the same hours before/);
+});
+
+test('error texts: masking and grouping through traces (mock search)', async () => {
+  const { collectErrors, maskText, pickErrorFields } = await import('../src/adapters/errortexts.mjs');
+  assert.equal(maskText('Order 00268d8f-a131-45be-9a96-ed114ca7bf3a has 12345 items, mail a.b@c.io'), 'Order {uuid} has {n} items, mail {email}');
+  assert.deepEqual(pickErrorFields(new Set(['x-trace-id', 'error.message.keyword'])), { traceField: 'x-trace-id', errorField: 'error.message.keyword' });
+  const calls = [];
+  const search = async (q) => {
+    calls.push(q);
+    if (q.aggs.ep) return { aggregations: { ep: { buckets: [{ key: '/orders/{id}', doc_count: 9, m: { buckets: [{ key: 'DELETE' }] }, t: { buckets: [{ key: 't1' }, { key: 't2' }] } }] } } };
+    return { aggregations: { msg: { buckets: [
+      { key: 'Order 00268d8f-a131-45be-9a96-ed114ca7bf3a has active tx', doc_count: 2, first: { value_as_string: '2026-11-26T06:00:00Z' }, ex: { hits: { hits: [{ _source: { 'x-trace-id': 't1' } }] } } },
+      { key: 'Order 014d4d69-5355-4e2b-aae6-384304e6414c has active tx', doc_count: 3, first: { value_as_string: '2026-11-26T05:00:00Z' }, ex: { hits: { hits: [{ _source: { 'x-trace-id': 't2' } }] } } },
+    ] } } };
+  };
+  const r = await collectErrors(search, { methodField: 'http.request.method', pathField: 'url.original', statusField: 'http.response.status_code', timeField: '@timestamp', traceField: 'x-trace-id', errorField: 'error.message.keyword', service: 'svc' });
+  assert.equal(r.endpoints[0].messages.length, 1, 'same message with different IDs is grouped');
+  assert.deepEqual([r.endpoints[0].messages[0].text, r.endpoints[0].messages[0].count, r.endpoints[0].messages[0].firstSeen], ['Order {uuid} has active tx', 5, '2026-11-26T05:00:00Z']);
+});

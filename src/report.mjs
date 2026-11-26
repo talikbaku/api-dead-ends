@@ -3,8 +3,9 @@
 
 import { formatStatus } from './usage.mjs';
 import { RISKY } from './classify.mjs';
+import { hourLabel } from './changes.mjs';
 
-/** @param {ReturnType<typeof import('./classify.mjs').classify>} r @param {{ spikes?: any[], toolVersion?: string, duplicates?: any, probe?: any }} [extra] */
+/** @param {ReturnType<typeof import('./classify.mjs').classify>} r @param {{ spikes?: any[], toolVersion?: string, duplicates?: any, probe?: any, changes?: any, errors?: any }} [extra] */
 export function toJson(r, extra = {}) {
   const fix = (/** @type {any} */ x) => ({ ...x, status: Object.fromEntries(x.status) });
   const brief = (/** @type {any} */ e) => ({ method: e.method, path: e.path, calls: e.calls, errors5xx: e.errors5xx });
@@ -20,6 +21,8 @@ export function toJson(r, extra = {}) {
       clientErrors: r.clientErrors.map(fix),
       spikes: extra.spikes || [],
       ...(extra.duplicates ? { duplicates: extra.duplicates } : {}),
+      ...(extra.changes ? { changes: extra.changes } : {}),
+      ...(extra.errors ? { errors: extra.errors } : {}),
       ...(extra.probe ? { probe: extra.probe } : {}),
       ...(extra.toolVersion ? { tool: { name: 'api-dead-ends', version: extra.toolVersion } } : {}),
     },
@@ -30,13 +33,13 @@ export function toJson(r, extra = {}) {
 
 /**
  * @param {ReturnType<typeof import('./classify.mjs').classify>} r
- * @param {{ top?: number, spikes?: any[], duplicates?: any, probe?: any }} [opt]
+ * @param {{ top?: number, spikes?: any[], duplicates?: any, probe?: any, changes?: any, tz?: string, errors?: any }} [opt]
  */
 export function toMarkdown(r, opt = {}) {
   const TOP = opt.top ?? 60;
   const n = (/** @type {number} */ x) => x.toLocaleString('en-US');
   const code = (/** @type {string} */ s) => `\`${String(s).replace(/[\u0000-\u001f\u007f\u2028\u2029]/g, ' ').replace(/`/g, "'").replace(/\|/g, '\\|')}\``;
-  const txt = (/** @type {string} */ s) => String(s).replace(/[\u0000-\u001f\u007f\u2028\u2029]/g, ' ').replace(/[|`*_<>#\[\]]/g, (c) => `\\${c}`).slice(0, 120);
+  const txt = (/** @type {string} */ s) => String(s).replace(/[\u0000-\u001f\u007f\u2028\u2029]/g, ' ').replace(/[|`*_<>#\[\]]/g, (c) => `\\${c}`).slice(0, 240);
   const st = (/** @type {Map<string, number>} */ m, k = 4) => formatStatus(m).split('|').slice(0, k).join(' ');
   const day = (/** @type {string} */ s) => (s ? s.slice(0, 10) : '');
   const pct = (/** @type {number} */ a, /** @type {number} */ b) => `${((a / b) * 100).toFixed(2)}%`;
@@ -76,6 +79,30 @@ export function toMarkdown(r, opt = {}) {
     L.push('');
   };
 
+  const ch = opt.changes;
+  if (ch) {
+    const ratio = (/** @type {number} */ a, /** @type {number} */ b) => (b ? `${a >= b ? '+' : ''}${(((a / b) - 1) * 100).toFixed(0)}%` : 'new');
+    const f1 = (/** @type {number} */ x) => n(Math.round(x));
+    sec(`What changed today (${ch.today}, 00:00–${String(ch.upToHour).padStart(2, '0')}:59 UTC vs the same hours before)`, ['', 'Today', 'Before (avg)', 'Change'],
+      [['Requests', f1(ch.totals.calls), f1(ch.totals.callsBefore), ratio(ch.totals.calls, ch.totals.callsBefore)], ['5xx', f1(ch.totals.e5), f1(ch.totals.e5Before), ratio(ch.totals.e5, ch.totals.e5Before)]],
+      ch.note);
+    if (ch.errorsUp.length) sec('5xx up today', ['Method', 'Path', '5xx today', 'Before (avg)', 'Started', 'Calls change'],
+      ch.errorsUp.slice(0, TOP).map((/** @type {any} */ x) => [txt(x.method), code(x.path), f1(x.e5), f1(x.e5Before), x.firstErrorHour == null ? '—' : hourLabel(ch.today, x.firstErrorHour, opt.tz), ratio(x.calls, x.callsBefore)]));
+    if (ch.clientErrorsUp.length) sec('4xx up today', ['Method', 'Path', '4xx today', 'Before (avg)'],
+      ch.clientErrorsUp.slice(0, TOP).map((/** @type {any} */ x) => [txt(x.method), code(x.path), f1(x.e4), f1(x.e4Before)]));
+    if (ch.callsUp.length || ch.callsDown.length) sec('Traffic changes (same hours)', ['Method', 'Path', 'Calls today', 'Before (avg)', 'Change'],
+      [...ch.callsUp.slice(0, 10), ...ch.callsDown.slice(0, 10)].map((/** @type {any} */ x) => [txt(x.method), code(x.path), f1(x.calls), f1(x.callsBefore), ratio(x.calls, x.callsBefore)]));
+    if (ch.appeared.length || ch.vanished.length) sec('Appeared / vanished today', ['Method', 'Path', 'Calls today', 'Before (avg)', ''],
+      [...ch.appeared.slice(0, 10).map((/** @type {any} */ x) => [txt(x.method), code(x.path), f1(x.calls), '0', 'new']), ...ch.vanished.slice(0, 10).map((/** @type {any} */ x) => [txt(x.method), code(x.path), '0', f1(x.callsBefore), 'gone'])]);
+  }
+  if (opt.errors?.endpoints?.length) {
+    L.push('## Error texts', '', txt(opt.errors.note || ''), '');
+    for (const e of opt.errors.endpoints) {
+      L.push(`### ${txt(e.method)} ${code(e.path)} — ${n(Number(e.errors5xx) || 0)} × 5xx`, '', '| Error (digits and IDs masked) | Records | First seen | Example trace |', '|---|---:|---|---|');
+      for (const m of e.messages || []) L.push(`| ${txt(m.text)} | ${n(Number(m.count) || 0)} | ${txt(String(m.firstSeen || '').slice(0, 19).replace('T', ' '))} | ${code(m.trace || '')} |`);
+      L.push('');
+    }
+  }
   const sp = opt.spikes || [];
   if (sp.length) sec('Recent spikes', ['Method', 'Path', 'Window', '5xx', 'Share', 'Days before'],
     sp.map((x) => [x.method, code(x.path), `last ${pl(x.window, 'day')}`, n(x.errors5xx), pct(x.errors5xx, x.calls), `${(x.wholeShare * 100).toFixed(2)}%`]),
@@ -127,7 +154,7 @@ export function toMarkdown(r, opt = {}) {
 /**
  * Short plain-text summary for the terminal (stderr): the top of each finding, at most `top` rows each.
  * @param {ReturnType<typeof import('./classify.mjs').classify>} r
- * @param {{ top?: number, color?: boolean, spikes?: any[] }} [opt]
+ * @param {{ top?: number, color?: boolean, spikes?: any[], changes?: any, tz?: string }} [opt]
  */
 export function toTerminal(r, opt = {}) {
   const top = opt.top ?? 3;
@@ -142,6 +169,13 @@ export function toTerminal(r, opt = {}) {
     L.push(`${color}${c.b}${title}${c.x}`, ...rows.slice(0, top));
     if (total > top) L.push(`${c.d}  … ${total - top} more in report.md${c.x}`);
   };
+  const ch = opt.changes;
+  if (ch) {
+    const pc = (/** @type {number} */ a, /** @type {number} */ b) => (b ? `${a >= b ? '+' : ''}${(((a / b) - 1) * 100).toFixed(0)}%` : 'new');
+    L.push(`${c.b}Δ Today vs the same hours before: requests ${pc(ch.totals.calls, ch.totals.callsBefore)}, 5xx ${n(ch.totals.e5)} (before ${n(Math.round(ch.totals.e5Before))})${c.x}`);
+    for (const x of ch.errorsUp.slice(0, top)) L.push(row(x.method, x.path, `${n(x.e5)} × 5xx (before ${n(Math.round(x.e5Before))})${x.firstErrorHour == null ? '' : `, from ${hourLabel(ch.today, x.firstErrorHour, opt.tz)}`}`));
+    for (const x of ch.callsUp.slice(0, 2)) L.push(row(x.method, x.path, `calls ${pc(x.calls, x.callsBefore)}`));
+  }
   const sp = opt.spikes || [];
   sec(c.r, `▲ Recent spikes: ${sp.length}`, sp.map((x) => row(x.method, x.path, `${(x.share * 100).toFixed(1)}% 5xx in the last ${x.window} day${x.window === 1 ? '' : 's'} (before: ${(x.wholeShare * 100).toFixed(1)}%)`)), sp.length);
   sec(c.r, `✖ Server errors: ${t.serverErrors}${t.serverErrorsBelowThreshold ? ` (+${t.serverErrorsBelowThreshold} below threshold)` : ''}`,
