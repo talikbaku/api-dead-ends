@@ -140,7 +140,7 @@ From the synthetic demo in [`examples/`](examples/) — [full report](examples/r
 
 Seven tools: `detect_project`, `setup_plan`, `build_query`, `spec_from_routes`, `analyze_usage` read inside the working directory; `init` and `write_report` write only `api-dead-ends.config.json` and files under `.api-dead-ends/` (never your code, never an existing file outside it).
 
-**UTCP** (experimental): no server needed — `npx api-dead-ends utcp` prints a UTCP manual with the read-only tools (detect, plan, query, spec, analyze) that call the CLI directly. Register it as a `cli` call template in any UTCP client.
+**UTCP**: no server needed — `npx api-dead-ends utcp` prints a UTCP manual with the read-only tools (detect, plan, query, spec, analyze) that call the CLI directly. Register it as a `cli` call template in any UTCP client (tested with the UTCP Python client: utcp 1.2.0 + utcp-cli 1.1.5).
 
 Any other chat assistant: paste [`prompts/any-ai.md`](prompts/any-ai.md) with your `report.json`. Details: [docs/MCP.md](docs/MCP.md).
 

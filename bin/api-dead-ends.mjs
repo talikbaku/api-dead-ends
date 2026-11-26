@@ -38,7 +38,7 @@ Start here:
   api-dead-ends logging-check [dir]  Static check: places in code/config that switch request logging off
                                      (nginx, ingress, morgan, pino-http, fastify, gin, echo, uvicorn, lograge, Next.js…).
   api-dead-ends mcp                  Run as an MCP server (stdio) for Claude Code, Cursor, VS Code…
-  api-dead-ends utcp                 Print a UTCP manual (experimental) so UTCP clients can call this CLI directly.
+  api-dead-ends utcp                 Print a UTCP manual so UTCP clients can call this CLI directly.
 
 Commands:
   api-dead-ends query <source>  [--service X] [--days 15] [--index P] [--response FILE] [field flags]
@@ -178,7 +178,7 @@ pino-http ignore, fastify disableRequestLogging, gin SkipPaths, echo Skipper, uv
 Next.js middleware matcher, Spring excludePathPatterns, Serilog filters). Unknown frameworks are reported as unknown.`,
   detect: `api-dead-ends detect [dir]   Read-only scan: services, languages, frameworks, specs, route files, observability hints (JSON).`,
   mcp: `api-dead-ends mcp   Stdio MCP server. Tools: detect_project, setup_plan, build_query, spec_from_routes, analyze_usage, write_report.`,
-  utcp: `api-dead-ends utcp   Prints a UTCP manual (experimental) whose tools call this CLI directly.`,
+  utcp: `api-dead-ends utcp   Prints a UTCP manual whose tools call this CLI directly.`,
 };
 if (v.help || !cmd0) {
   if (cmd0 === 'init') console.log(INIT_HELP); else if (cmd0 && CMD_HELP[cmd0]) console.log(CMD_HELP[cmd0]); else console.log(HELP);

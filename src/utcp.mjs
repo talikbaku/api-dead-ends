@@ -1,7 +1,7 @@
 // @ts-check
-// UTCP manual (experimental): lets UTCP clients call this CLI directly, without an MCP server.
+// UTCP manual: lets UTCP clients call this CLI directly, without an MCP server.
 // Format per the UTCP CLI plugin docs: tools[].tool_call_template = { call_template_type: "cli", commands: [...] },
-// arguments substituted via UTCP_ARG_<name>_UTCP_END. Not yet tested with a UTCP client.
+// arguments substituted via UTCP_ARG_<name>_UTCP_END. Tested with utcp 1.2.0 + utcp-cli 1.1.5 (Python).
 
 import { fileURLToPath } from 'node:url';
 
