@@ -1,0 +1,19 @@
+name: Feature request
+description: A new source, option or report you need
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: The problem first — what you do today and where it hurts.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would help?
+  - type: textarea
+    id: context
+    attributes:
+      label: Anything else (stack, source, scale)

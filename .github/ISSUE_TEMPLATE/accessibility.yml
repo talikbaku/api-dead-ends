@@ -1,0 +1,20 @@
+name: Accessibility barrier
+description: Something in the CLI output, reports or docs is hard or impossible to use with your setup
+labels: [accessibility]
+body:
+  - type: textarea
+    id: barrier
+    attributes:
+      label: What is the barrier?
+      description: Short is fine. Describe what you tried and what happened.
+    validations:
+      required: true
+  - type: input
+    id: setup
+    attributes:
+      label: Your setup
+      placeholder: "VoiceOver + Safari, NVDA + Firefox, high contrast, screen magnifier, keyboard only…"
+  - type: textarea
+    id: where
+    attributes:
+      label: Where (command, report tab, doc page)

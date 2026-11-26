@@ -193,7 +193,7 @@ All data in `examples/` is synthetic.
 
 ## 📚 More
 
-**Status:** v0.2.0. [docs/MORE.md](docs/MORE.md) — all flags, thresholds, path templating, framework route lists, no-logs options, FAQ · [docs/SOURCES.md](docs/SOURCES.md) — every source · [docs/MCP.md](docs/MCP.md) · [docs/SECURITY.md](docs/SECURITY.md) · [CHANGELOG.md](CHANGELOG.md)
+**Status:** v0.2.0. [docs/MORE.md](docs/MORE.md) — all flags, thresholds, path templating, framework route lists, no-logs options, FAQ · [docs/SOURCES.md](docs/SOURCES.md) — every source · [docs/MCP.md](docs/MCP.md) · [docs/SECURITY.md](docs/SECURITY.md) · [CHANGELOG.md](CHANGELOG.md) · [CONTRIBUTING.md](CONTRIBUTING.md) · [ACCESSIBILITY.md](ACCESSIBILITY.md)
 
 **Try it on your traffic and tell me what broke** — [open an issue](https://github.com/talikbaku/api-dead-ends/issues). Useful? ⭐ Star the repo.
 
