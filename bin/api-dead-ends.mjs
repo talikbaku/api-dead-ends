@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 // @ts-check
 import { parseArgs } from 'node:util';
-import { readFile, mkdir, stat } from 'node:fs/promises';
-import { join } from 'node:path';
+import { readFile, mkdir, stat, lstat, access } from 'node:fs/promises';
+import { constants as fsConstants } from 'node:fs';
+import { join, dirname } from 'node:path';
 import { parseUsage, addRow, toCsv } from '../src/usage.mjs';
 import { loadSpec, literalSegments } from '../src/spec.mjs';
 import { parseSpecText } from '../src/yaml.mjs';
@@ -215,8 +216,9 @@ Active "Not logged" check that works with any log source. NEVER point it at prod
 (Not the same as \`logging-check\`, the static scan of code and config.)
   send     one request per spec operation (GET/HEAD only; path parameters → "ade-probe"), each tagged with a unique marker
            ade-<run>-NNNN in the X-ADE-Probe header, the User-Agent and ?ade_probe=. Redirects are not followed, response
-           bodies are not read, every URL must stay on the --url host. Writes a run manifest (operation → marker, status,
-           latency) and prints search queries for Kibana, VictoriaLogs, Loki, CloudWatch… to export the run's time window.
+           bodies are not read, every URL must stay on the --url host and path (spec paths with . or .. are not
+           sent). Writes a run manifest (operation → marker, status, latency) and prints search queries for Kibana,
+           VictoriaLogs, Loki, CloudWatch… to export the run's time window.
            Exit 1 when no request reached the target.
   verify   streams the exported logs (.gz ok, - = stdin) and looks for each marker: logged / NOT logged / answered by
            gateway/auth (401/403/404/3xx, handler maybe not reached) / not reached / unknown (no marker found at all:
@@ -225,23 +227,32 @@ Active "Not logged" check that works with any log source. NEVER point it at prod
   -o F (verify)       F.md → Markdown, F.json → JSON, anything else → a folder with logging-probe.md and logging-probe.json;
                       without -o: Markdown on stdout (--json: JSON)
   --dry-run           print the plan (requests, URLs, operations not sent); send nothing, write nothing
-  --header 'N: V'     extra request header, e.g. auth; repeatable. 'Authorization: $STAGING_TOKEN' reads the value from the
-                      environment (keeps it out of shell history). Values are never written to the manifest or printed.
+  --header 'N: V'     extra request header, e.g. auth; repeatable. $NAME / \${NAME} anywhere in the value is read from the
+                      environment: 'Authorization: Bearer $STAGING_TOKEN' (single quotes keep the token out of shell
+                      history; an unset variable is an error; $$ = a literal $). Values are never written to the manifest
+                      or printed. Quote the whole header: --header 'Name: value'.
   --base-path P       path between --url and the spec paths (default: the spec's servers[0].url / basePath, with server
                       variable defaults, left out when the --url path already contains it; '' = none)
   --rate N            requests per second (default 2, max 50)   --timeout S   seconds per request (default 10)
   --max-ops N         send at most N operations (default 300)
-  --target-is-staging the host name does not look like staging (stag*, stg, test, dev, qa, uat, sandbox, local, localhost,
-                      private IPs; never a name with "prod") but it is: send anyway. Without it such a host is refused, or
-                      you are asked to confirm when running in a terminal.
+  --target-is-staging the host does not look like staging but it is: send anyway. Without it such a host is refused, or
+                      you are asked to confirm when running in a terminal. Looks like staging: localhost, 127.x, ::1;
+                      names ending in .test or .local; a subdomain label (left of the last two labels, or three under
+                      co.uk-style suffixes; dev.to, api.shop.dev are not, dev.github.io is) that contains
+                      stag/stage/staging/stg/uat/sandbox as a part (staging-api, api-stg, stage2) or is exactly
+                      dev/test/testing/qa/local, optionally with a number (dev, qa2, test-3; not dev-null). Never a
+                      name with "prod". Private IPs (10/8, 172.16/12, 192.168/16, 169.254/16, 100.64/10, IPv6
+                      fc00::/7, fe80::/10) need this flag or a confirmation.
   --include-writes --i-understand-this-is-staging   also POST/PUT/PATCH/DELETE, as a deliberately invalid request
-           (Content-Type: application/json, body {}). Both flags are required, and only on a host that looks like
-           staging. Risk: endpoints that need no body (POST …/cancel, POST /internal/sync, DELETE …) may really run —
-           only on disposable staging data.`,
+           (Content-Type: application/json, body {}). Both flags are required. On a host that does not look like
+           staging (or a private IP) also --target-is-staging; never on a host with "prod" in its name. Risk: endpoints that need no body (POST …/cancel,
+           POST /internal/sync, DELETE …) may really run — only on disposable staging data.`,
   detect: `api-dead-ends detect [dir]   Read-only scan: services, languages, frameworks, specs, route files, observability hints (JSON).`,
   mcp: `api-dead-ends mcp   Stdio MCP server. Read tools: detect_project, setup_plan, build_query, spec_from_routes, analyze_usage. Write tools: init, write_report.`,
   utcp: `api-dead-ends utcp   Prints a UTCP manual whose tools call this CLI directly.`,
 };
+// The old name of logging-probe: say so also with --help (that is when people look for it).
+if (cmd0 === 'check-logging') fail(`Unknown command check-logging. Did you mean: api-dead-ends logging-probe ${pos[1] === 'verify' ? 'verify' : 'send'} …? (active check; logging-probe --help) or api-dead-ends logging-check [dir] (static scan)?`);
 if (v.help || !cmd0) {
   if (cmd0 === 'init') console.log(INIT_HELP); else if (cmd0 && CMD_HELP[cmd0]) console.log(CMD_HELP[cmd0]); else console.log(HELP);
   process.exitCode = cmd0 || v.help ? 0 : 2;
@@ -301,7 +312,6 @@ if (cmd0 === 'coverage') {
   } else process.stdout.write(md);
   await exitAfterFlush(0);
 }
-if (cmd0 === 'check-logging') fail(`Unknown command check-logging. Did you mean: api-dead-ends logging-probe ${pos[1] === 'verify' ? 'verify' : 'send'} …? (active check; logging-probe --help) or api-dead-ends logging-check [dir] (static scan)?`);
 if (cmd0 === 'logging-check') {
   // The mirror-named active check is `logging-probe send|verify`: a swapped name must not silently report "nothing found".
   if (pos[1] === 'send' || pos[1] === 'verify') fail(`logging-check is the static scan of code and config. Did you mean: api-dead-ends logging-probe ${pos[1]} …? (logging-probe --help)`);
@@ -331,7 +341,12 @@ if (cmd0 === 'logging-probe') {
   };
   if (sub === 'send') {
     onlyFlags(['url', 'spec', 'out', 'rate', 'timeout', 'max-ops', 'include-writes', 'i-understand-this-is-staging', 'target-is-staging', 'dry-run', 'header', 'base-path']);
-    if (pos.length > 2) fail(`logging-probe send: unexpected argument ${lp.clean(pos[2])}`);
+    if (pos.length > 2) {
+      // Never echo it: an unquoted --header 'Name:' $TOKEN puts the token here.
+      const n = pos.length - 2;
+      const split = (v.header || []).some((h) => /:\s*$/.test(String(h)));
+      fail(`logging-probe send: ${n} unexpected extra argument(s) (not shown).${split ? ' A --header value ends with ":" — quote the whole header: --header "Name: $VAR" (or \'Name: $VAR\' to keep the token out of shell history).' : ' Quote --header values that contain spaces: --header "Name: value".'}`);
+    }
     if (!v.url || !v.spec) fail('Usage: api-dead-ends logging-probe send --url <STAGING base URL> --spec openapi.json [-o probe-run.json] [--dry-run]   (logging-probe --help)');
     if (!!v['include-writes'] !== !!v['i-understand-this-is-staging']) fail('Write methods need both --include-writes and --i-understand-this-is-staging (see logging-probe --help for the risk).');
     let doc, lspec;
@@ -358,6 +373,18 @@ if (cmd0 === 'logging-probe') {
     if (!planned.plan.length) fail(`Nothing to send: ${planned.notSent.length} operation(s), none of them can be probed (see --dry-run for the reasons).`);
     console.error(`WARNING: logging-probe sends real requests to ${lp.clean(t.origin)}. Use it on STAGING only — never on production.`);
     if (gate.action === 'refuse') fail(`Refused: ${gate.reason}`);
+    // The manifest is the only marker → operation map: check -o before anything is sent (and before any question).
+    const run = lp.newRunId();
+    const out = v.out === undefined ? `probe-run-${run}.json` : String(v.out);
+    const toOut = out !== '-';
+    if (toOut) {
+      if (/[/\\]$/.test(out) || /(^|[/\\])\.{1,2}$/.test(out)) fail(`Error: -o ${lp.clean(out)} names a folder — nothing sent. Give a file name (e.g. -o probe-run.json) or -o - for stdout.`);
+      const st = await lstat(out).catch((e) => (e.code === 'ENOENT' ? null : e));
+      if (st instanceof Error) fail(`Error: cannot use -o ${lp.clean(out)}: ${err(st)} — nothing sent.`);
+      if (st && !st.isFile()) fail(`Error: -o ${lp.clean(out)} ${st.isDirectory() ? 'is a directory' : st.isSymbolicLink() ? 'is a symlink' : 'is not a regular file'} — nothing sent. Give a file name (e.g. -o probe-run.json) or -o - for stdout.`);
+      try { await mkdir(dirname(out), { recursive: true }); await access(dirname(out), fsConstants.W_OK); }
+      catch (e) { fail(`Error: cannot write -o ${lp.clean(out)}: ${err(e)} — nothing sent.`); }
+    }
     if (lp.nodeHasBrotliBug()) console.error(`Note: Node ${process.versions.node} has an unfixed Brotli decoder bug (CVE-2026-111497, fixed in 22.23.5 and 24.22.3). logging-probe send never decompresses responses, but update Node.`);
     if (gate.action === 'ask') {
       const { createInterface } = await import('node:readline');
@@ -367,11 +394,7 @@ if (cmd0 === 'logging-probe') {
       if (!/^y(es)?$/i.test(String(a).trim())) fail('Nothing sent.');
     }
     if (includeWrites) console.error('WARNING: --include-writes: POST/PUT/PATCH/DELETE are sent as invalid requests ({}); endpoints that need no body may really run.');
-    if (headers.length && t.origin.startsWith('http:') && !/^http:\/\/(localhost|127\.|\[::1\])/.test(t.origin)) console.error('WARNING: --header values go over plain http.');
-    const run = lp.newRunId();
-    const out = v.out === undefined ? `probe-run-${run}.json` : String(v.out);
-    const toOut = out !== '-';
-    if (toOut) await mkdir(join(out, '..'), { recursive: true }).catch(() => {}); // before sending: the manifest is the only marker → operation map
+    if (headers.length && t.origin.startsWith('http:') && !lp.isLoopbackHost(new URL(t.origin).hostname)) console.error('WARNING: --header values go over plain http.');
     let m;
     try { m = await lp.sendProbes({ url: String(v.url), spec: /** @type {any} */ (lspec), specBase, baseOverride, headers, includeWrites, rate, timeoutMs, maxOps, run, version: VERSION, log: (s) => console.error(s) }); }
     catch (e) { fail(`Error: ${err(e)}`); }

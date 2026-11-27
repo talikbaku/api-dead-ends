@@ -224,3 +224,107 @@ test('0.3.0 recent-CVE audit: spec paths cannot put terminal escape sequences on
     assert.ok(!d.stdout.includes('\u001b') && !d.stderr.includes('\u001b'));
   } finally { srv.closeAllConnections(); await new Promise((r) => srv.close(r)); }
 });
+
+// 0.3.0 final review (logging-probe): staging gate, path traversal, secrets in errors, manifest escapes.
+test('0.3.0 final review: production hosts that only contain a staging word (TLD, apex, hyphen word) or private IPs are not let through', async () => {
+  const { stagingGate } = await import('../src/logprobe.mjs');
+  for (const u of ['https://api.myshop.dev', 'https://checkout.app.dev', 'https://payments.bank.qa', 'https://dev.to', 'https://test.com', 'https://dev-null.io', 'https://dev-null.example.com']) {
+    assert.equal(stagingGate({ origin: u, includeWrites: true }).action, 'refuse', u);
+    // only an explicit --target-is-staging opens writes there (a TTY confirmation is not enough)
+    assert.equal(stagingGate({ origin: u, includeWrites: true, tty: true }).action, 'refuse', u);
+    assert.equal(stagingGate({ origin: u, includeWrites: true, targetIsStaging: true }).action, 'go', u);
+    assert.equal(stagingGate({ origin: u }).action, 'refuse', u);
+    assert.equal(stagingGate({ origin: u, tty: true }).action, 'ask', u);
+  }
+  for (const u of ['http://10.0.0.5', 'http://192.168.1.10', 'http://[fd12::1]:8080', 'http://[::ffff:10.0.0.1]']) {
+    assert.equal(stagingGate({ origin: u }).action, 'refuse', u);
+    assert.equal(stagingGate({ origin: u, includeWrites: true, tty: true }).action, 'refuse', u);
+    assert.equal(stagingGate({ origin: u, includeWrites: true, targetIsStaging: true }).action, 'go', u);
+  }
+  for (const u of ['https://staging-api.shop.com', 'https://api-staging.shop.com', 'https://api.stage2.shop.com', 'https://stg-1.shop.com', 'http://127.0.0.1:8080', 'http://[::1]']) assert.equal(stagingGate({ origin: u, includeWrites: true }).action, 'go', u);
+  // CLI: refused before anything is sent (no TTY in tests)
+  const dir = mkdtempSync(join(tmpdir(), 'ade-gate-'));
+  writeFileSync(join(dir, 'spec.json'), JSON.stringify({ openapi: '3.0.0', info: { title: 't', version: '1' }, paths: { '/a': { get: {}, delete: {} } } }));
+  for (const url of ['http://10.255.255.1:9', 'https://api.myshop.dev']) {
+    const r = run(dir, ['logging-probe', 'send', '--url', url, '--spec', join(dir, 'spec.json'), '--include-writes', '--i-understand-this-is-staging', '-o', join(dir, 'r.json')]);
+    assert.equal(r.status, 2, url);
+    assert.match(r.stderr, /Refused/, url);
+    assert.ok(!existsSync(join(dir, 'r.json')));
+  }
+});
+
+test('0.3.0 final review: spec paths with .. or %2e%2e cannot leave the --url path prefix and --base-path', async () => {
+  const { createServer } = await import('node:http');
+  const dir = mkdtempSync(join(tmpdir(), 'ade-trav-'));
+  const doc = { openapi: '3.0.0', info: { title: 't', version: '1' }, paths: { '/orders/%2e%2e/%2e%2e/%2e%2e/prod-app/orders/{id}': { delete: {}, get: {} }, '/../../admin/x': { get: {} }, '/orders/{id}': { get: {} } } };
+  writeFileSync(join(dir, 'spec.json'), JSON.stringify(doc));
+  const seen = [];
+  const srv = createServer((q, s) => { seen.push(`${q.method} ${q.url.split('?')[0]}`); s.end(); });
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  try {
+    const url = `http://127.0.0.1:${srv.address().port}/staging-app`;
+    const r = await new Promise((resolve) => { // async: the server runs in this process
+      const c = spawn(process.execPath, [BIN, 'logging-probe', 'send', '--url', url, '--base-path', '/api/v1', '--spec', join(dir, 'spec.json'), '--include-writes', '--i-understand-this-is-staging', '--rate', '50', '-o', join(dir, 'run.json')], { cwd: dir });
+      let stderr = '';
+      c.stderr.on('data', (d) => { stderr += d; });
+      c.on('close', (status) => resolve({ status, stderr }));
+    });
+    assert.equal(r.status, 0, r.stderr);
+    assert.deepEqual(seen, ['GET /staging-app/api/v1/orders/ade-probe']);
+    const m = JSON.parse(readFileSync(join(dir, 'run.json'), 'utf8'));
+    assert.equal(m.notSent.length, 3);
+    for (const x of m.notSent) assert.match(x.reason, /segments/);
+    for (const p of m.probes) assert.ok(p.urlPath.startsWith('/staging-app/api/v1/'), p.urlPath);
+  } finally { srv.closeAllConnections(); await new Promise((r) => srv.close(r)); }
+});
+
+test('0.3.0 final review: an unquoted --header value (the token) is never echoed in the "unexpected argument" error', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ade-hdr-'));
+  writeFileSync(join(dir, 'spec.json'), JSON.stringify({ openapi: '3.0.0', info: { title: 't', version: '1' }, paths: { '/a': { get: {} } } }));
+  const secret = 's3cr3tTOKENvalue';
+  for (const extra of [['--header', 'Authorization:', secret], ['--header', 'Authorization:', 'Bearer', secret], ['--header', 'Authorization:', secret, '--dry-run']]) {
+    const r = run(dir, ['logging-probe', 'send', '--url', 'http://127.0.0.1:9', '--spec', join(dir, 'spec.json'), ...extra]);
+    assert.equal(r.status, 2);
+    assert.ok(!r.stderr.includes(secret) && !r.stdout.includes(secret), extra.join(' '));
+    assert.match(r.stderr, /unexpected extra argument\(s\) \(not shown\)/);
+    assert.match(r.stderr, /quote the whole header/);
+  }
+});
+
+test('0.3.0 final review: verify never writes manifest text with escape sequences or table breaks to the terminal', async () => {
+  const { verdicts, verdictsToMarkdown } = await import('../src/logprobe.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'ade-man-'));
+  const run8 = 'abc123ef';
+  const good = { kind: 'api-dead-ends/logging-probe-run', run: run8, prefix: `ade-${run8}`, target: 'http://127.0.0.1:1', started: '2026-01-01T00:00:00.000Z', finished: '2026-01-01T00:01:00.000Z',
+    probes: [{ n: 1, marker: `ade-${run8}-0001`, method: 'GET', path: '/a', status: 200, error: '' }], notSent: [{ method: 'POST', path: '/b', reason: 'x' }] };
+  writeFileSync(join(dir, 'app.log'), `ade-${run8}-0001\n`);
+  const variants = [
+    (m) => { m.probes[0].method = 'GET\u001b]0;PWNED\u0007\u001b[2J'; },
+    (m) => { m.probes[0].status = 0; m.probes[0].error = '\u001b[1A'; },
+    (m) => { m.started = '\u001b]8;;http://evil/\u0007x'; },
+    (m) => { m.notSent[0].reason = '\u001b]0;T2\u0007'; },
+  ];
+  for (const [i, f] of variants.entries()) {
+    const m = structuredClone(good); f(m);
+    writeFileSync(join(dir, 'evil.json'), JSON.stringify(m));
+    const r = run(dir, ['logging-probe', 'verify', '--run', join(dir, 'evil.json'), '--logs', join(dir, 'app.log')]);
+    assert.equal(r.status, i < 3 ? 2 : 0, r.stderr); // method, error, dates: refused; free-text reason: cleaned
+    assert.ok(!/[\u001b\u0007]/.test(r.stdout + r.stderr), String(f));
+  }
+  // library use (no checkManifest-level refusal of reasons): Markdown cells are cleaned and escaped
+  const m = structuredClone(good);
+  m.notSent[0] = { method: 'POST\u001b[2J|x', path: '/b', reason: 'a | b `c`\n\u001b]0;T\u0007' };
+  const md = verdictsToMarkdown(verdicts(m, new Map([[1, 1]])));
+  assert.ok(!/[\u001b\u0007]/.test(md));
+  const row = md.split('\n').find((l) => l.includes('/b'));
+  assert.equal(row.split(/(?<!\\)\|/).length, 5, row); // still 3 cells
+});
+
+test('0.3.0 final review: the plain-http header warning is not skipped for hosts that only start with localhost or 127.', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ade-http-'));
+  writeFileSync(join(dir, 'spec.json'), JSON.stringify({ openapi: '3.0.0', info: { title: 't', version: '1' }, paths: { '/a': { get: {} } } }));
+  for (const url of ['http://localhost-dev.invalid', 'http://127.0.0.1.dev.invalid', 'http://localhost.attacker.invalid']) {
+    const r = spawnSync(process.execPath, [BIN, 'logging-probe', 'send', '--url', url, '--spec', join(dir, 'spec.json'), '--timeout', '1', '--target-is-staging', '-o', join(dir, 'r.json'), '--header', 'Authorization: $TOK'], { cwd: dir, encoding: 'utf8', env: { ...process.env, TOK: 'x' } });
+    assert.match(r.stderr, /WARNING: --header values go over plain http/, url);
+  }
+});

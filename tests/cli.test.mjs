@@ -122,3 +122,12 @@ test('cli: --write-baseline and --duplicates refuse symlinks; "-" goes to stdout
   assert.match(dMix.stderr, /--duplicates - would mix/);
   assert.ok(!existsSync(join(dir, '-')));
 });
+
+test('cli: a flow-style YAML spec with an error reports the YAML reason and line (not just "not valid JSON")', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ade-flow-'));
+  writeFileSync(join(dir, 'flow.yaml'), '{openapi: 3.0.0, info: {title: t, version: "1"},\n paths: {/a: {get: {}}, /a: {get: {}}}}\n');
+  writeFileSync(join(dir, 'u.csv'), 'method,path,calls\nGET,/a,1\n');
+  const r = run('report', '--usage', join(dir, 'u.csv'), '--spec', join(dir, 'flow.yaml'));
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /spec is not valid JSON or YAML: duplicate key \(line 2\)/);
+});

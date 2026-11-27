@@ -164,7 +164,7 @@ Any other chat assistant: paste [`prompts/any-ai.md`](prompts/any-ai.md) with yo
 ## Safe by default
 
 - **Aggregates only.** The tool reads counts per method + path + status. Raw log lines, IPs, tokens and request bodies never enter it; IDs and token-like path segments are folded to `{id}`, query strings dropped.
-- **No network by default.** It prints queries; you run them with your own access. Exceptions you start yourself: `fetch elasticsearch` (your read-only key), `fetch kibana` (your browser login), `fetch victorialogs` (your VictoriaLogs URL; read-only LogsQL) `probe <url>` (a browser on the site you name) and `logging-probe send --url` (marked test requests to the staging URL you name; GET/HEAD only unless you add two explicit flags, rate-limited, no redirects followed).
+- **No network by default.** It prints queries; you run them with your own access. Exceptions you start yourself: `fetch elasticsearch` (your read-only key), `fetch kibana` (your browser login), `fetch victorialogs` (your VictoriaLogs URL; read-only LogsQL), `probe <url>` (a browser on the site you name), and `logging-probe send --url` (marked test requests to the staging URL you name; GET/HEAD only unless you add two explicit flags, rate-limited, no redirects followed).
 - **Nothing changes your code.** `init` writes a config and next steps, never overwrites, and keeps raw exports out of git.
 - **Traffic is untrusted.** Paths from logs are escaped in reports and in MCP output, so they can't inject Markdown or instructions. [docs/SECURITY.md](docs/SECURITY.md)
 

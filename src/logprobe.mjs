@@ -48,38 +48,123 @@ export function checkTarget(url) {
   return { origin: u.origin, path: u.pathname.replace(/\/+$/, '') };
 }
 
-/**
- * Does the host name look like staging/test? A heuristic only. A host with "prod" in any label never counts.
- * @param {string} origin
- */
-export function looksLikeStaging(origin) {
-  const h = new URL(origin).hostname.toLowerCase();
-  if (h.split('.').some((l) => l.includes('prod'))) return false;
-  if (h === 'localhost' || h.endsWith('.localhost') || h === '[::1]') return true;
-  const ip = h.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
-  if (ip) {
-    const [a, b] = [Number(ip[1]), Number(ip[2])];
-    return a === 127 || a === 10 || (a === 192 && b === 168) || (a === 172 && b >= 16 && b <= 31);
-  }
-  return /(^|[.-])(stag(e|ing)?|stg|test(ing)?|dev|qa|uat|sandbox|local)([.-]|\d|$)/.test(h);
+/** IPv4 dotted quad → its four numbers, or null. @param {string} h */
+function ipv4(h) {
+  const m = h.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  return m ? m.slice(1).map(Number) : null;
+}
+
+/** "[::ffff:a00:1]" (URL hostnames of IPv6 literals) → eight 16-bit groups, or null. @param {string} h */
+function ipv6(h) {
+  if (!/^\[[0-9a-f:.]+\]$/.test(h)) return null;
+  let s = h.slice(1, -1);
+  const v4 = s.match(/(\d{1,3}(?:\.\d{1,3}){3})$/); // URL normalises these to hex, but accept both
+  if (v4) { const q = ipv4(v4[1]); if (!q) return null; s = s.slice(0, -v4[1].length) + ((q[0] << 8) | q[1]).toString(16) + ':' + ((q[2] << 8) | q[3]).toString(16); }
+  const [l, r] = s.split('::');
+  const a = l ? l.split(':') : [], b = r !== undefined && r ? r.split(':') : [];
+  if (s.split('::').length > 2) return null;
+  const fill = s.includes('::') ? 8 - a.length - b.length : 0;
+  const g = [...a, ...Array(Math.max(fill, 0)).fill('0'), ...b].map((x) => parseInt(x, 16));
+  return g.length === 8 && g.every((x) => x >= 0 && x <= 0xffff) ? g : null;
 }
 
 /**
+ * Kind of an IP address host: 'loopback' (127/8, ::1), 'private' (10/8, 172.16/12, 192.168/16, 169.254/16,
+ * 100.64/10, IPv6 ULA fc00::/7 and link-local fe80::/10; IPv4-mapped ::ffff:a.b.c.d like its IPv4 address),
+ * 'public' for any other IP, null when the host is a name. @param {string} h URL hostname, lower case
+ */
+export function ipKind(h) {
+  let q = ipv4(h);
+  if (!q) {
+    const g = ipv6(h);
+    if (!g) return null;
+    if (g.slice(0, 7).every((x) => x === 0) && g[7] === 1) return 'loopback';
+    if (g.slice(0, 5).every((x) => x === 0) && g[5] === 0xffff) q = [g[6] >> 8, g[6] & 255, g[7] >> 8, g[7] & 255];
+    else return (g[0] & 0xfe00) === 0xfc00 || (g[0] & 0xffc0) === 0xfe80 ? 'private' : 'public';
+  }
+  const [a, b] = q;
+  if (a === 127) return 'loopback';
+  if (a === 10 || (a === 192 && b === 168) || (a === 172 && b >= 16 && b <= 31) || (a === 169 && b === 254) || (a === 100 && b >= 64 && b <= 127)) return 'private';
+  return 'public';
+}
+
+/** Is this URL hostname this machine (localhost, *.localhost, 127/8, ::1, ::ffff:127.x)? Exact, never a prefix. @param {string} hostname */
+export function isLoopbackHost(hostname) {
+  const h = String(hostname).toLowerCase().replace(/\.$/, '');
+  return h === 'localhost' || h.endsWith('.localhost') || ipKind(h) === 'loopback';
+}
+
+// Staging words in a host name. STRONG ones count as any hyphen part of a label (staging-api, api-stg-2);
+// WEAK ones are ordinary words (dev-null, test-results, local-news), so they count only as a whole label,
+// optionally with a number (dev, qa2, test-3).
+const STRONG = /^(stag|stage|staging|stg|uat|sandbox)\d*$/;
+const WEAK = /^(dev|test|testing|qa|local)(-?\d+)?$/;
+// Second-level public suffixes under a two-letter country TLD (shop.co.uk: the registrable domain is 3 labels).
+const SECOND_LEVEL = new Set(['co', 'com', 'net', 'org', 'gov', 'edu', 'ac', 'ne', 'or', 'go', 'gv', 'mil', 'nic', 'ltd', 'plc']);
+
+/**
+ * How the target host looks: 'loopback' (this machine), 'staging' (a staging name), 'private' (a private-range
+ * IP: may be production in a data centre), 'other'. A heuristic only. A name with "prod" in any label never counts.
+ * Only labels left of the registrable domain are read (dev.to, test.com, api.myshop.dev are not staging);
+ * the reserved TLDs .test and .local count, .localhost is loopback.
+ * @param {string} origin
+ * @returns {'loopback' | 'staging' | 'private' | 'other'}
+ */
+export function hostClass(origin) {
+  const h = new URL(origin).hostname.toLowerCase().replace(/\.$/, '');
+  const ip = ipKind(h);
+  if (ip) return ip === 'loopback' ? 'loopback' : ip === 'private' ? 'private' : 'other';
+  const labels = h.split('.');
+  if (labels.some((l) => l.includes('prod'))) return 'other';
+  if (isLoopbackHost(h)) return 'loopback';
+  const tld = labels[labels.length - 1];
+  if (labels.length > 1 && (tld === 'test' || tld === 'local')) return 'staging';
+  const reg = labels.length >= 3 && tld.length === 2 && SECOND_LEVEL.has(labels[labels.length - 2]) ? 3 : 2;
+  // A single-label host (docker-compose service `api-staging`, `staging`) is all "subdomain".
+  const sub = labels.length === 1 ? labels : labels.slice(0, Math.max(labels.length - reg, 0));
+  const hit = sub.some((l) => WEAK.test(l) || l.split('-').some((part) => STRONG.test(part)));
+  return hit ? 'staging' : 'other';
+}
+
+/**
+ * Does the host look like staging/test (or this machine)? Private IPs do not: see stagingGate.
+ * @param {string} origin
+ */
+export const looksLikeStaging = (origin) => { const c = hostClass(origin); return c === 'loopback' || c === 'staging'; };
+
+/**
  * Whether `send` may run against this origin. Pure, so every branch is testable without a terminal.
+ * Loopback and staging names: go. Private IPs: GET with --target-is-staging or a terminal confirmation; writes only
+ * with --target-is-staging. Any other host: GET with --target-is-staging or a confirmation; writes only with
+ * --target-is-staging, and never on a host with `prod` in any label.
  * @param {{ origin: string, includeWrites?: boolean, targetIsStaging?: boolean, tty?: boolean }} o
  * @returns {{ action: 'go' | 'ask' | 'refuse', reason: string }}
  */
 export function stagingGate(o) {
-  if (looksLikeStaging(o.origin)) return { action: 'go', reason: '' };
+  const c = hostClass(o.origin);
+  if (c === 'loopback' || c === 'staging') return { action: 'go', reason: '' };
   const host = clean(new URL(o.origin).hostname);
-  if (o.includeWrites) return { action: 'refuse', reason: `"${host}" does not look like a staging or test host — --include-writes is always refused there (also with --target-is-staging).` };
+  if (c === 'private') {
+    if (o.targetIsStaging) return { action: 'go', reason: '' };
+    const what = `"${host}" is a private-network address: it may be staging or production.`;
+    if (o.includeWrites) return { action: 'refuse', reason: `${what} --include-writes needs --target-is-staging there (a confirmation is not enough).` };
+    if (o.tty) return { action: 'ask', reason: what };
+    return { action: 'refuse', reason: `${what} If it really is staging, add --target-is-staging.` };
+  }
+  if (o.includeWrites) {
+    if (host.toLowerCase().split('.').some((l) => l.includes('prod'))) return { action: 'refuse', reason: `"${host}" has "prod" in its name — --include-writes is always refused there (also with --target-is-staging).` };
+    if (o.targetIsStaging) return { action: 'go', reason: '' };
+    return { action: 'refuse', reason: `"${host}" does not look like a staging or test host — --include-writes needs --target-is-staging there (a confirmation is not enough).` };
+  }
   if (o.targetIsStaging) return { action: 'go', reason: '' };
   if (o.tty) return { action: 'ask', reason: `"${host}" does not look like a staging or test host.` };
   return { action: 'refuse', reason: `"${host}" does not look like a staging or test host. If it really is staging, add --target-is-staging.` };
 }
 
 /**
- * Parse one --header value: "Name: value" or "Name: $ENV_VAR" (the value is read from the environment).
+ * Parse one --header value: "Name: value". $NAME and ${NAME} anywhere in the value are read from the environment
+ * ("Authorization: Bearer $TOKEN"); $$ is a literal $. An unset or empty variable is an error that names the
+ * variable, never a value.
  * @param {string} s @param {Record<string, string|undefined>} [env]
  * @returns {[string, string]}
  */
@@ -88,21 +173,36 @@ export function parseHeader(s, env = process.env) {
   const name = i > 0 ? s.slice(0, i).trim() : '';
   if (!/^[A-Za-z0-9!#$%&'*+.^_`|~-]{1,100}$/.test(name)) throw new Error('--header must look like "Name: value" or "Name: $ENV_VAR"');
   if (RESERVED_HEADERS.has(name.toLowerCase())) throw new Error(`--header: ${name} is set by the probe itself and cannot be replaced`);
-  let value = s.slice(i + 1).trim();
-  const ref = value.match(/^\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?$/);
-  if (ref) {
-    const x = env[ref[1]];
-    if (!x) throw new Error(`--header ${name}: environment variable ${ref[1]} is not set or empty`);
-    value = x;
-  }
+  // One pass with a function: a variable's value is never expanded again ($ inside a token stays as it is).
+  const value = s.slice(i + 1).trim().replace(/\$\$|\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)/g, (all, a, b) => {
+    if (all === '$$') return '$';
+    const ref = a || b;
+    const x = Object.hasOwn(env, ref) ? env[ref] : undefined;
+    // Name the variable only when it looks like one (FOO_BAR); otherwise it may be part of a literal secret.
+    if (!x) throw new Error(`--header ${name}: ${/^[A-Z_][A-Z0-9_]*$/.test(ref) ? `environment variable ${ref} is` : 'a $… reference in the value is'} not set or empty (write a literal $ as $$)`);
+    return x;
+  });
   if (!value) throw new Error(`--header ${name}: empty value`);
   if (/[\r\n\0]/.test(value)) throw new Error(`--header ${name}: the value contains a line break`);
   return [name, value];
 }
 
-/** "/a//b/./../c" → "/a/b/c": no empty, "." or ".." segments; "" for none. @param {string} s */
+/** Is this path segment "." or ".." (also %2e-encoded, or ".." followed by ";params")? @param {string} x */
+const isDotSeg = (x) => /^(?:\.|%2e){1,2}(?:;.*)?$/i.test(x);
+
+/**
+ * Does a path contain "." / ".." segments, also percent-encoded (%2e, %2f, %5c) or with ";params"?
+ * Such a path could leave the --url path prefix once the URL or the server resolves it. @param {string} p
+ */
+export function hasDotSegment(p) {
+  let d = String(p);
+  try { d = decodeURIComponent(d); } catch { /* malformed escapes: check the raw text */ }
+  return [String(p), d].some((t) => t.split(/[/\\]|%2f|%5c/i).some(isDotSeg));
+}
+
+/** "/a//b/./../c" → "/a/b/c": no empty, "." or ".." segments (also %2e-encoded, or hidden behind %2f / %5c); "" for none. @param {string} s */
 function normBase(s) {
-  const segs = String(s).split(/[/\\]+/).filter((x) => x && x !== '.' && x !== '..');
+  const segs = String(s).split(/[/\\]+/).filter((x) => x && !hasDotSegment(x));
   return segs.length ? '/' + segs.join('/') : '';
 }
 
@@ -153,6 +253,9 @@ export function planProbes(spec, opt = {}) {
     base = inUrl ? prefix : prefix + sb;
   }
   const origin = opt.origin || 'http://probe.invalid';
+  // Every request path must stay under --url's path + the base path, as the URL parser resolves it.
+  let under = '/';
+  try { under = new URL((base + '/').replace(/^\/+/, '/'), origin + '/').pathname; } catch { /* checked per operation below */ }
   /** @type {Array<{ method: string, path: string, send: string, urlPath: string, url: string }>} */
   const plan = [];
   /** @type {Array<{ method: string, path: string, reason: string }>} */
@@ -169,12 +272,14 @@ export function planProbes(spec, opt = {}) {
     seen.add(k);
     // Path parameters get a harmless placeholder, never a real-looking ID (no spec examples: they may be real records).
     // "?" and "#" in a spec path are encoded: they must not start a query or fragment.
+    if (hasDotSegment(op.path)) { notSent.push({ method: op.method, path: op.path, reason: "path has '.' or '..' segments (it could leave the --url path)" }); continue; }
     const filled = op.path.replace(/\{[^}]+\}/g, PLACEHOLDER).replace(/[?#]/g, (c) => encodeURIComponent(c));
     // Exactly one leading "/" (no "//host" or "/\host"), then resolve against the origin and check it did not move.
     const urlPath = ((base + '/' + filled).replace(/^[/\\]+/, '/').replace(/\/{2,}/g, '/')) || '/';
     let u;
     try { u = new URL(urlPath, origin + '/'); } catch { notSent.push({ method: op.method, path: op.path, reason: 'not a valid URL path' }); continue; }
     if (u.origin !== origin) { notSent.push({ method: op.method, path: op.path, reason: 'URL would leave the target host' }); continue; }
+    if (!u.pathname.startsWith(under) && u.pathname + '/' !== under) { notSent.push({ method: op.method, path: op.path, reason: 'path would leave the --url path and base path' }); continue; }
     if (plan.length >= maxOps) { notSent.push({ method: op.method, path: op.path, reason: `over the --max-ops cap (${maxOps})` }); continue; }
     plan.push({ method: op.method, path: op.path, send, urlPath: u.pathname, url: u.href });
   }
@@ -380,9 +485,36 @@ export function openLog(f) {
 /** File names that look like edge access logs (they record every request, so everything in them looks logged). @param {string} f */
 export const looksLikeAccessLog = (f) => f !== '-' && /access|ingress|nginx|gateway|haproxy|traefik|envoy/i.test(basename(f));
 
-/** @param {any} m */
+const ISO_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z$/;
+const METHOD_RE = /^[A-Z]{1,10}$/;
+const ERROR_RE = /^[A-Za-z0-9_ ]{0,40}$/;
+
+/**
+ * Check a run manifest before verify uses it. Manifests travel between people and CI jobs, so every field that
+ * ends up in the report is checked for shape (text fields are also cleaned when printed).
+ * @param {any} m
+ */
 export function checkManifest(m) {
-  if (!m || m.kind !== MANIFEST_KIND || !Array.isArray(m.probes) || !RUN_RE.test(String(m.run))) throw new Error('not a logging-probe run manifest (from `logging-probe send`)');
+  const bad = (/** @type {string} */ what) => new Error(`not a valid logging-probe run manifest: ${what}`);
+  if (!m || typeof m !== 'object' || m.kind !== MANIFEST_KIND || !Array.isArray(m.probes) || !RUN_RE.test(String(m.run))) throw new Error('not a logging-probe run manifest (from `logging-probe send`)');
+  for (const k of ['started', 'finished']) if (m[k] !== undefined && !(typeof m[k] === 'string' && ISO_RE.test(m[k]))) throw bad(`${k} is not an ISO date`);
+  if (m.target !== undefined && typeof m.target !== 'string') throw bad('target is not text');
+  m.probes.forEach((/** @type {any} */ p, /** @type {number} */ i) => {
+    const at = `probes[${i}]`;
+    if (!p || typeof p !== 'object') throw bad(`${at} is not an object`);
+    if (!Number.isInteger(p.n) || p.n < 1 || p.n > 10 ** PAD - 1) throw bad(`${at}.n is not a probe number`);
+    if (p.marker !== undefined && p.marker !== markerOf(m.run, p.n)) throw bad(`${at}.marker does not match the run`);
+    if (typeof p.method !== 'string' || !METHOD_RE.test(p.method)) throw bad(`${at}.method is not an HTTP method`);
+    if (typeof p.path !== 'string') throw bad(`${at}.path is not text`);
+    if (p.status !== undefined && !(Number.isInteger(p.status) && p.status >= 0 && p.status <= 999)) throw bad(`${at}.status is not an HTTP status`);
+    if (p.error !== undefined && !(typeof p.error === 'string' && ERROR_RE.test(p.error))) throw bad(`${at}.error is not an error code`);
+  });
+  if (m.notSent !== undefined) {
+    if (!Array.isArray(m.notSent)) throw bad('notSent is not a list');
+    m.notSent.forEach((/** @type {any} */ x, /** @type {number} */ i) => {
+      if (!x || typeof x !== 'object' || typeof x.method !== 'string' || typeof x.path !== 'string' || typeof x.reason !== 'string') throw bad(`notSent[${i}] needs method, path and reason`);
+    });
+  }
   return m;
 }
 
@@ -420,7 +552,9 @@ export function verdicts(manifest, hits, src = {}) {
   const totals = { operations: rows.length, logged: count('logged'), notLogged: count('not logged'), gateway: count('gateway'), notReached: count('not reached'), unknown: count('unknown'), notSent: notSent.length };
   /** @type {string[]} */
   const warnings = [];
-  if (rows.length && !found) warnings.push(`No marker of run ade-${m.run} was found anywhere in the logs. That usually means the wrong export (other source, other time window, filtered out) or logs not shipped yet — not that nothing is logged. Check the export first.`);
+  const reachedAny = m.probes.some((/** @type {any} */ p) => p.status);
+  if (rows.length && !reachedAny && !found) warnings.push(`No request of run ade-${m.run} reached the target: all ${rows.length} failed (${[...new Set(m.probes.map((/** @type {any} */ p) => clean(p.error || 'no status')))].join(', ')}), so nothing could be logged. Check --url, VPN and DNS, then run logging-probe send again.`);
+  else if (rows.length && !found) warnings.push(`No marker of run ade-${m.run} was found anywhere in the logs. That usually means the wrong export (other source, other time window, filtered out) or logs not shipped yet — not that nothing is logged. Check the export first.`);
   const files = src.files || per.map((f) => f.file);
   for (const f of files.filter(looksLikeAccessLog)) warnings.push(`${clean(f)} looks like an access / ingress / gateway log. Those record every request, so endpoints found only there look logged even when the application wrote nothing. Check the "Found in" column, or verify with the application's logs only.`);
   return {
@@ -450,22 +584,24 @@ export function summaryLine(t) {
 /** @param {ReturnType<typeof verdicts>} r */
 export function verdictsToMarkdown(r) {
   const code = (/** @type {string} */ s) => `\`${String(s).replace(/[\u0000-\u001f\u007f-\u009f`|]/g, ' ')}\``;
+  // Plain table cell / sentence text from the manifest: no escape sequences, no line breaks, no table or code breaks.
+  const cell = (/** @type {unknown} */ s) => String(s ?? '').replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').replace(/[`|\\*_<>[\]]/g, (c) => `\\${c}`);
   const L = ['# api-dead-ends: logging probe (active, staging)', '',
-    `Run ${code(r.run)} against ${code(r.target)}, ${r.window.started} … ${r.window.finished}. Logs scanned: ${r.source.files.length} file(s), ${r.source.lines.toLocaleString('en-US')} lines.`, '',
+    `Run ${code(r.run)} against ${code(r.target)}, ${cell(r.window.started)} … ${cell(r.window.finished)}. Logs scanned: ${r.source.files.length} file(s), ${r.source.lines.toLocaleString('en-US')} lines.`, '',
     `**${summaryLine(r.totals)}.**`, ''];
-  for (const w of r.warnings) L.push(`> **Warning.** ${w}`, '');
+  for (const w of r.warnings) L.push(`> **Warning.** ${clean(w)}`, '');
   const order = { 'not logged': 0, unknown: 1, gateway: 2, 'not reached': 3, logged: 4 };
   const rank = (/** @type {string} */ v) => order[/** @type {keyof typeof order} */ (v)] ?? 9;
   const rows = [...r.rows].sort((a, b) => rank(a.verdict) - rank(b.verdict));
   L.push('| Verdict | Method | Path | Status | Marker matches | Found in | Marker |', '|---|---|---|---:|---:|---|---|');
   for (const x of rows) {
     const where = x.foundIn.length ? x.foundIn.map((f) => `${code(f.file)} (${f.hits})`).join(', ') : '—';
-    L.push(`| ${VERDICT_LABEL[/** @type {keyof typeof VERDICT_LABEL} */ (x.verdict)] || x.verdict} | ${x.method} | ${code(x.path)} | ${x.status || x.error || '—'} | ${x.hits} | ${where} | ${code(x.marker)} |`);
+    L.push(`| ${VERDICT_LABEL[/** @type {keyof typeof VERDICT_LABEL} */ (x.verdict)] || cell(x.verdict)} | ${cell(x.method)} | ${code(x.path)} | ${cell(x.status || x.error || '—')} | ${x.hits} | ${where} | ${code(x.marker)} |`);
   }
   L.push('');
   if (r.notSent.length) {
     L.push('## Not sent', '', '| Method | Path | Why |', '|---|---|---|');
-    for (const s of r.notSent) L.push(`| ${s.method} | ${code(s.path)} | ${s.reason} |`);
+    for (const s of r.notSent) L.push(`| ${cell(s.method)} | ${code(s.path)} | ${cell(s.reason)} |`);
     L.push('');
   }
   L.push(r.note, '');

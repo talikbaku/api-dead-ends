@@ -11,7 +11,8 @@
 // (billion-laughs protection), explicit `? key` / `: value` entries
 // whose key is a scalar (PyYAML writes keys longer than 128 characters this way), the core tags
 // !!str (forces a string) and !!int / !!float / !!bool / !!null (applied; a value that does not fit
-// the tag is an error), other !! core tags (ignored).
+// the tag is an error, also a collection), !!map / !!seq (checked: only on a mapping / a sequence or an
+// empty value), !!binary / !!timestamp (ignored).
 // Refused with an error: complex keys (a collection as a key), custom tags (!foo), duplicate keys,
 // tab indentation, the key __proto__, nesting deeper than MAX_DEPTH, input larger than MAX_YAML_CHARS.
 // Mapping keys are always strings from the source text (`200:` → "200"); values follow the core schema.
@@ -264,11 +265,12 @@ class Parser {
     return this.finishProps(props, v);
   }
 
-  /** @returns {{ anchor: string | null, tag: string | null }} */
+  /** @returns {{ anchor: string | null, tag: string | null, tagAt: number }} */
   parseProps() {
     const s = this.s;
     /** @type {string | null} */ let anchor = null;
     /** @type {string | null} */ let tag = null;
+    let tagAt = this.pos;
     for (;;) {
       const c = s[this.pos];
       if (c === '&' && anchor === null) {
@@ -283,17 +285,27 @@ class Parser {
         if (!CORE_TAGS.has(tag)) throw this.fail('custom tags are not supported (only the !! core tags)', start);
         this.lastPlain = undefined; // the tagged node sets it again if it is a plain scalar
         this.tagAt = start;
+        tagAt = start;
       } else break;
       this.skipSpaces();
     }
-    return { anchor, tag };
+    return { anchor, tag, tagAt };
   }
 
-  /** @param {{ anchor: string | null, tag: string | null }} props @param {any} v */
+  /** @param {{ anchor: string | null, tag: string | null, tagAt?: number }} props @param {any} v */
   finishProps(props, v) {
-    if (props.tag !== null && TYPED_TAGS.has(props.tag) && (v === null || typeof v !== 'object')) {
-      const text = typeof v === 'string' ? v : this.lastPlain ?? (v === null ? '' : String(v));
-      v = this.applyTag(props.tag, text);
+    const tag = props.tag;
+    if (tag !== null) {
+      const at = props.tagAt ?? this.tagAt;
+      const coll = v !== null && typeof v === 'object';
+      if (TYPED_TAGS.has(tag) && coll) throw this.fail(`a ${tag} tag cannot be on a ${Array.isArray(v) ? 'sequence' : 'mapping'}`, at);
+      if (tag === '!!map' && (Array.isArray(v) || (!coll && v !== null))) throw this.fail(`the value does not match its !!map tag`, at);
+      if (tag === '!!seq' && ((coll && !Array.isArray(v)) || (!coll && v !== null))) throw this.fail(`the value does not match its !!seq tag`, at);
+      if (TYPED_TAGS.has(tag)) {
+        const text = typeof v === 'string' ? v : this.lastPlain ?? (v === null ? '' : String(v));
+        this.tagAt = at;
+        v = this.applyTag(tag, text);
+      }
     }
     if (props.anchor !== null) this.anchors.set(props.anchor, { value: v, size: this.size(v), ...this.measure(v) });
     return v;
@@ -908,8 +920,8 @@ export function parseSpecText(text) {
     return parseYaml(t);
   } catch (e) {
     if (e instanceof YamlError) {
-      const looksJson = /^\s*[{[]/.test(t);
-      throw new Error(looksJson ? 'spec is not valid JSON' : `spec is not valid JSON or YAML: ${e.message.replace(/^YAML: /, '')}`);
+      // Never JSON.parse's message (Node quotes the input in it); the YAML reason is a fixed phrase plus a line.
+      throw new Error(`spec is not valid JSON or YAML: ${e.message.replace(/^YAML: /, '')}`);
     }
     throw e;
   }

@@ -12,6 +12,7 @@ import { loadSpec } from '../src/spec.mjs';
 import {
   sendProbes, planProbes, scanStream, verdicts, verdictsToMarkdown, markerOf, checkTarget, searchHints,
   looksLikeStaging, stagingGate, specBasePath, parseHeader, planToText, httpRequest, nodeHasBrotliBug,
+  hostClass, isLoopbackHost, checkManifest, hasDotSegment,
 } from '../src/logprobe.mjs';
 
 const BIN = new URL('../bin/api-dead-ends.mjs', import.meta.url).pathname;
@@ -51,7 +52,7 @@ async function staging(handler) {
 }
 
 const tmp = () => mkdtempSync(join(tmpdir(), 'ade-lp-'));
-const manifestOf = (run, probes, extra = {}) => ({ kind: 'api-dead-ends/logging-probe-run', run, prefix: `ade-${run}`, target: 'http://x', started: 'a', finished: 'b', probes, notSent: [], ...extra });
+const manifestOf = (run, probes, extra = {}) => ({ kind: 'api-dead-ends/logging-probe-run', run, prefix: `ade-${run}`, target: 'http://x', started: '2026-01-01T00:00:00.000Z', finished: '2026-01-01T00:01:00.000Z', probes, notSent: [], ...extra });
 
 test('logging-probe: plan — GET/HEAD only by default, placeholder params, base path not doubled, cap', () => {
   const spec = loadSpec(DOC);
@@ -122,16 +123,85 @@ test('logging-probe: servers[0].url variables use their defaults; templated segm
 });
 
 test('logging-probe: staging heuristic and gate', () => {
-  for (const u of ['http://localhost:3000', 'http://127.0.0.1', 'http://10.1.2.3', 'http://192.168.0.5', 'http://172.20.0.1', 'http://[::1]:8080', 'https://staging.shop.com', 'https://api-stg.shop.com', 'https://qa2.shop.com', 'https://api.dev.shop.com', 'https://sandbox.shop.com']) assert.ok(looksLikeStaging(u), u);
+  for (const u of ['http://localhost:3000', 'http://127.0.0.1', 'http://[::1]:8080', 'https://staging.shop.com', 'https://api-stg.shop.com', 'https://qa2.shop.com', 'https://api.dev.shop.com', 'https://sandbox.shop.com']) assert.ok(looksLikeStaging(u), u);
   for (const u of ['https://api.shop.com', 'https://prod-test-results.company.com', 'https://staging.prod.company.com', 'https://demo.company.com', 'https://int.company.com', 'https://preprod.company.com', 'http://172.32.0.1', 'http://localhost.evil.com']) assert.ok(!looksLikeStaging(u), u);
   assert.equal(stagingGate({ origin: 'http://127.0.0.1' }).action, 'go');
   assert.equal(stagingGate({ origin: 'https://api.shop.com' }).action, 'refuse');
   assert.equal(stagingGate({ origin: 'https://api.shop.com', tty: true }).action, 'ask');
   assert.equal(stagingGate({ origin: 'https://api.shop.com', targetIsStaging: true }).action, 'go');
-  const w = stagingGate({ origin: 'https://api.shop.com', targetIsStaging: true, includeWrites: true, tty: true });
+  assert.equal(stagingGate({ origin: 'https://api.shop.com', includeWrites: true, tty: true }).action, 'refuse', 'writes: a confirmation is not enough');
+  assert.equal(stagingGate({ origin: 'https://api.shop.com', targetIsStaging: true, includeWrites: true }).action, 'go', 'writes with the explicit flag');
+  const w = stagingGate({ origin: 'https://api.prod-eu.shop.com', targetIsStaging: true, includeWrites: true, tty: true });
   assert.equal(w.action, 'refuse');
   assert.match(w.reason, /always refused/);
+  // single-label hosts (docker-compose service names) and hyphenated staging names
+  for (const u of ['http://api-staging:8080', 'http://staging:8080', 'http://qa:3000']) assert.ok(looksLikeStaging(u), u);
+  assert.ok(!looksLikeStaging('http://api:8080'));
+  assert.ok(!looksLikeStaging('http://prod-staging:8080'));
   assert.equal(stagingGate({ origin: 'https://staging.shop.com', includeWrites: true }).action, 'go');
+});
+
+test('logging-probe: staging names, private IPs and the hyphen rule (host classes)', () => {
+  const cls = (/** @type {string} */ u) => hostClass(new URL(u).origin);
+  // staging words left of the registrable domain; strong words in any hyphen part, weak words as a whole label (+ number)
+  for (const u of ['https://staging-api.shop.com', 'https://api-staging.shop.com', 'https://api.stage2.shop.com', 'https://stg-1.shop.com',
+    'https://qa2.shop.com', 'https://test-3.shop.com', 'https://uat.shop.com', 'https://dev.shop.co.uk', 'https://api.dev.shop.com', 'http://app.test', 'http://box.local',
+    'https://staging.shop.com.']) assert.equal(cls(u), 'staging', u);
+  // the TLD and the registrable domain never count; weak words inside a hyphenated label do not count
+  for (const u of ['https://api.myshop.dev', 'https://checkout.app.dev', 'https://payments.bank.qa', 'https://dev.to', 'https://dev.to.', 'https://test.com',
+    'https://dev-null.io', 'https://dev-null.example.com', 'https://test-results.example.com', 'https://www.dev.co.uk',
+    'https://stagingapi.example.com', 'http://localhost-dev.invalid', 'http://127.0.0.1.dev.invalid', 'http://localhost.attacker.invalid', 'http://8.8.8.8', 'http://[2001:db8::1]']) assert.equal(cls(u), 'other', u);
+  for (const u of ['http://127.0.0.1', 'http://127.9.9.9', 'http://localhost', 'http://a.localhost', 'http://[::1]', 'http://[::ffff:127.0.0.1]', 'http://2130706433']) assert.equal(cls(u), 'loopback', u);
+  for (const u of ['http://10.0.0.5', 'http://192.168.0.5', 'http://172.20.0.1', 'http://169.254.1.1', 'http://100.64.0.1', 'http://[fd12::1]:8080', 'http://[fc00::5]', 'http://[fe80::1]', 'http://[::ffff:10.0.0.1]', 'http://[::ffff:192.168.1.1]']) assert.equal(cls(u), 'private', u);
+  // gate: private IPs need --target-is-staging (or a confirmation for GET); writes never without the flag
+  const g = (/** @type {any} */ o) => stagingGate({ origin: 'http://10.0.0.5', ...o }).action;
+  assert.equal(g({}), 'refuse');
+  assert.equal(g({ tty: true }), 'ask');
+  assert.equal(g({ targetIsStaging: true }), 'go');
+  assert.equal(g({ includeWrites: true, tty: true }), 'refuse');
+  assert.match(stagingGate({ origin: 'http://10.0.0.5', includeWrites: true, tty: true }).reason, /--target-is-staging/);
+  assert.equal(g({ includeWrites: true, targetIsStaging: true }), 'go');
+  assert.equal(stagingGate({ origin: 'http://[fd12::1]:8080', includeWrites: true }).action, 'refuse');
+  for (const u of ['https://api.myshop.dev', 'https://dev.to', 'https://test.com']) {
+    assert.equal(stagingGate({ origin: u, includeWrites: true, tty: true }).action, 'refuse', u);
+    assert.equal(stagingGate({ origin: u, includeWrites: true, targetIsStaging: true }).action, 'go', u);
+  }
+  assert.equal(stagingGate({ origin: 'https://api.prod.shop.com', includeWrites: true, targetIsStaging: true }).action, 'refuse');
+  // plain-http warning helper: exact host, never a prefix
+  for (const h of ['localhost', 'a.localhost', '127.0.0.1', '[::1]', 'localhost.']) assert.ok(isLoopbackHost(h), h);
+  for (const h of ['localhost-dev.invalid', 'localhost.attacker.invalid', '127.attacker.invalid', '127.0.0.1.dev.invalid', '10.0.0.1']) assert.ok(!isLoopbackHost(h), h);
+});
+
+test('logging-probe: spec paths with . / .. segments never leave the --url path and base path', () => {
+  const spec = { base: '', ops: ['/../../admin/x', '/%2e%2e/%2e%2e/other', '/orders/%2E%2e/x', '/a/..%2fb', '/a/%2e%2e%5cb', '/a/..;x/b', '/./a', '/ok/{id}', '/v1.2/a..b'].map((path) => ({ method: 'GET', path })) };
+  const p = planProbes(/** @type {any} */ (spec), { basePath: '/team-a', baseOverride: '/api/v1', origin: 'http://127.0.0.1:1' });
+  assert.deepEqual(p.plan.map((x) => x.urlPath), ['/team-a/api/v1/ok/ade-probe', '/team-a/api/v1/v1.2/a..b']);
+  assert.equal(p.notSent.length, 7);
+  for (const x of p.notSent) assert.match(x.reason, /'\.' or '\.\.' segments/);
+  // a spec base with encoded dots is dropped like a literal ..
+  assert.equal(specBasePath({ swagger: '2.0', basePath: '/%2e%2e/%2E%2E/v1' }), '/v1');
+  assert.equal(specBasePath({ swagger: '2.0', basePath: '/..%2f..%2fprod-app/v1' }), '/v1');
+  assert.equal(specBasePath({ openapi: '3.0.0', servers: [{ url: 'https://x/a/%2e%2e%5cprod/v2' }] }), '/a/v2');
+  assert.deepEqual(planProbes(/** @type {any} */ ({ base: '', ops: [{ method: 'GET', path: '/x' }] }), { basePath: '/staging-app', baseOverride: '/..%2fprod', origin: 'http://127.0.0.1:1' }).plan.map((x) => x.urlPath), ['/staging-app/x']);
+  assert.ok(hasDotSegment('/x/%2e') && !hasDotSegment('/x/.well-known'));
+  // the resolved path is checked too (library use with an odd base)
+  const q = planProbes(/** @type {any} */ ({ base: '', ops: [{ method: 'GET', path: '/x' }] }), { basePath: '/gw', baseOverride: '/svc a', origin: 'http://127.0.0.1:1' });
+  assert.deepEqual(q.plan.map((x) => x.urlPath), ['/gw/svc%20a/x']);
+});
+
+test('logging-probe CLI: a spec path with .. is listed as not sent', async () => {
+  const dir = tmp();
+  const doc = { openapi: '3.0.0', info: { title: 't', version: '1' }, paths: { '/a': { get: {} }, '/../../admin/x': { get: {} }, '/%2e%2e/other': { get: {} } } };
+  writeFileSync(join(dir, 'spec.json'), JSON.stringify(doc));
+  const s = await staging();
+  try {
+    const r = await run('logging-probe', 'send', '--url', `${s.url}/team-a`, '--spec', join(dir, 'spec.json'), '--rate', '50', '-o', join(dir, 'run.json'));
+    assert.equal(r.status, 0, r.stderr);
+    assert.deepEqual(s.hits.map((h) => h.url.split('?')[0]), ['/team-a/a']);
+    const m = JSON.parse(readFileSync(join(dir, 'run.json'), 'utf8'));
+    assert.equal(m.notSent.length, 2);
+    for (const x of m.notSent) assert.match(x.reason, /segments/);
+  } finally { await s.close(); }
 });
 
 test('logging-probe: --header parsing (env values, reserved names)', () => {
@@ -142,6 +212,42 @@ test('logging-probe: --header parsing (env values, reserved names)', () => {
   assert.throws(() => parseHeader('no colon'), /Name: value/);
   assert.throws(() => parseHeader('User-Agent: x'), /cannot be replaced/);
   assert.throws(() => parseHeader('X-ADE-Probe: x'), /cannot be replaced/);
+});
+
+test('logging-probe: --header replaces $NAME / ${NAME} anywhere in the value; unset → error naming the variable', () => {
+  assert.deepEqual(parseHeader('Authorization: Bearer $TOK', { TOK: 's3cret' }), ['Authorization', 'Bearer s3cret']);
+  assert.deepEqual(parseHeader('Authorization: Bearer ${TOK}x', { TOK: 's3cret' }), ['Authorization', 'Bearer s3cretx']);
+  assert.deepEqual(parseHeader('X-Pair: $A:$B', { A: '1', B: '2' }), ['X-Pair', '1:2']);
+  // values are inserted as they are: never expanded again, $& and $1 are not replacement patterns
+  assert.deepEqual(parseHeader('X-K: $K', { K: 'a$&b$OTHER' }), ['X-K', 'a$&b$OTHER']);
+  // $$ is a literal $; a $ not followed by a name stays
+  assert.deepEqual(parseHeader('X-Price: $$5 $5 a$', {}), ['X-Price', '$5 $5 a$']);
+  let msg = '';
+  try { parseHeader('Authorization: Bearer $STAGING_TOKEN', { OTHER: 'v' }); } catch (e) { msg = e.message; }
+  assert.match(msg, /STAGING_TOKEN is not set or empty/);
+  assert.throws(() => parseHeader('Authorization: Bearer $E', { E: '' }), /E is not set or empty/);
+  // a lower-case $part may be a piece of a literal secret: it is not named
+  assert.throws(() => parseHeader('Authorization: Basic s3cr$etPart', {}), (e) => !/etPart/.test(String(e.message)) && /\$\$/.test(String(e.message)));
+  assert.throws(() => parseHeader('X: $T', { T: 'a\r\nInjected: 1' }), /line break/);
+  assert.throws(() => parseHeader('X: $toString', {}), /reference in the value is not set or empty/);
+});
+
+test('logging-probe CLI: --header "Bearer $VAR" sends the value from the environment; an unset one exits 2', async () => {
+  const dir = tmp();
+  writeFileSync(join(dir, 'spec.json'), JSON.stringify({ openapi: '3.0.0', info: { title: 't', version: '1' }, paths: { '/a': { get: {} } } }));
+  const s = await staging();
+  try {
+    const env = { ...process.env, STAGING_TOKEN: 'secret123' };
+    const r = await run('logging-probe', 'send', '--url', s.url, '--spec', join(dir, 'spec.json'), '--rate', '50', '-o', join(dir, 'run.json'), '--header', 'Authorization: Bearer $STAGING_TOKEN', { env });
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(s.hits[0].auth, 'Bearer secret123');
+    assert.ok(!r.stderr.includes('secret123') && !readFileSync(join(dir, 'run.json'), 'utf8').includes('secret123'));
+    const { STAGING_TOKEN, ...noTok } = env;
+    const u = await run('logging-probe', 'send', '--url', s.url, '--spec', join(dir, 'spec.json'), '--rate', '50', '-o', join(dir, 'run2.json'), '--header', 'Authorization: Bearer $STAGING_TOKEN', { env: noTok });
+    assert.equal(u.status, 2);
+    assert.match(u.stderr, /environment variable STAGING_TOKEN is not set/);
+    assert.equal(s.hits.length, 1);
+  } finally { await s.close(); }
 });
 
 test('logging-probe send: markers in header, User-Agent and query; GET only; rate limit; no bodies kept; redirects not followed', async () => {
@@ -232,6 +338,44 @@ test('logging-probe verify: markers split across chunks, prefix-safe; logged / N
   assert.equal(none.rows.find((x) => x.path === '/p4').verdict, 'gateway');
   assert.match(verdictsToMarkdown(none), /unknown \(check the export\)/);
   assert.throws(() => verdicts({ kind: 'x' }, new Map()), /manifest/);
+  // no request reached the target at all → say so, not "check the export"
+  const failed = manifestOf(run, [1, 2].map((n) => ({ n, marker: markerOf(run, n), method: 'GET', path: `/f${n}`, status: 0, error: 'ECONNREFUSED' })));
+  const nf = verdicts(failed, new Map());
+  assert.equal(nf.warnings.length, 1);
+  assert.match(nf.warnings[0], /No request of run ade-abc123ef reached the target: all 2 failed \(ECONNREFUSED\)/);
+  assert.doesNotMatch(nf.warnings[0], /export/);
+});
+
+test('logging-probe CLI: verify on a run where nothing reached the target says so', async () => {
+  const dir = tmp();
+  writeFileSync(join(dir, 'spec.json'), JSON.stringify({ openapi: '3.0.0', info: { title: 't', version: '1' }, paths: { '/a': { get: {} } } }));
+  writeFileSync(join(dir, 'app.log'), 'nothing\n');
+  const s = await staging();
+  const url = s.url;
+  await s.close(); // closed port: every request fails
+  const r = await run('logging-probe', 'send', '--url', url, '--spec', join(dir, 'spec.json'), '--rate', '50', '-o', join(dir, 'fail.json'));
+  assert.equal(r.status, 1);
+  const v = await run('logging-probe', 'verify', '--run', join(dir, 'fail.json'), '--logs', join(dir, 'app.log'));
+  assert.equal(v.status, 1);
+  assert.match(v.stderr, /No request of run ade-[a-z0-9]+ reached the target/);
+  assert.doesNotMatch(v.stderr, /Check the export first/);
+});
+
+test('logging-probe: a manifest from send passes checkManifest; odd field shapes are refused', async () => {
+  const s = await staging();
+  try {
+    const m = await sendProbes({ url: s.url, spec: loadSpec(DOC), rate: 50, run: 'abc123ef', includeWrites: false });
+    assert.doesNotThrow(() => checkManifest(JSON.parse(JSON.stringify(m))));
+    assert.ok(m.probes.some((p) => p.error) && m.notSent.length); // the failing /boom and the writes not sent are covered
+  } finally { await s.close(); }
+  const base = () => manifestOf('abc123ef', [{ n: 1, marker: markerOf('abc123ef', 1), method: 'ANY', path: '/a', status: 0, error: 'network error' }]);
+  assert.doesNotThrow(() => checkManifest(base()));
+  const bad = [
+    (m) => { m.probes[0].method = 'GET\u001b[2J'; }, (m) => { m.probes[0].status = '200'; }, (m) => { m.probes[0].error = '\u001b]0;x\u0007'; },
+    (m) => { m.started = '\u001b]8;;http://evil/\u0007x'; }, (m) => { m.probes[0].marker = 'ade-other-0001'; }, (m) => { m.probes[0].n = 'x'; },
+    (m) => { m.notSent = [{ method: 'POST', path: '/x' }]; }, (m) => { m.probes[0] = null; }, (m) => { m.target = { a: 1 }; },
+  ];
+  for (const f of bad) { const m = base(); f(m); assert.throws(() => checkManifest(m), /manifest/, String(f)); }
 });
 
 test('logging-probe verify: access-log-like file names get a warning', () => {
@@ -455,6 +599,55 @@ test('check-logging (the mirror name) is not a command: points to logging-probe'
   const r = await run('check-logging', 'send', '--url', 'http://x', '--spec', 'y.json');
   assert.equal(r.status, 2);
   assert.match(r.stderr, /Did you mean: api-dead-ends logging-probe send/);
+});
+
+test('check-logging --help (the old name) shows the rename hint, not the general help', async () => {
+  for (const args of [['check-logging', '--help'], ['check-logging', 'send', '--help'], ['check-logging', 'verify', '-h']]) {
+    const r = await run(...args);
+    assert.equal(r.status, 2, args.join(' '));
+    assert.match(r.stderr, new RegExp(`Did you mean: api-dead-ends logging-probe ${args[1] === 'verify' ? 'verify' : 'send'}`), args.join(' '));
+    assert.doesNotMatch(r.stdout, /Start here/);
+  }
+});
+
+test('logging-probe send: -o is checked before anything is sent (directory, symlink, not a regular file, parent not creatable)', async () => {
+  const { symlinkSync, mkdirSync } = await import('node:fs');
+  const dir = tmp();
+  writeFileSync(join(dir, 'spec.json'), JSON.stringify({ openapi: '3.0.0', info: { title: 't', version: '1' }, paths: { '/a': { get: {} } } }));
+  mkdirSync(join(dir, 'existdir'));
+  writeFileSync(join(dir, 'victim.txt'), 'keep\n');
+  symlinkSync(join(dir, 'victim.txt'), join(dir, 'link.json'));
+  const s = await staging();
+  try {
+    for (const [o, why] of [[join(dir, 'existdir'), /is a directory/], [join(dir, 'link.json'), /is a symlink/], ['/dev/null', /not a regular file/], [join(dir, 'spec.json', 'x.json'), /cannot (use|write)/], [join(dir, 'newdir') + '/', /names a folder/], ['.', /names a folder/]]) {
+      const r = await run('logging-probe', 'send', '--url', s.url, '--spec', join(dir, 'spec.json'), '--rate', '50', '-o', o);
+      assert.equal(r.status, 2, `${o}: ${r.stderr}`);
+      assert.match(r.stderr, why, o);
+      assert.match(r.stderr, /nothing sent/, o);
+    }
+    assert.equal(s.hits.length, 0);
+    assert.equal(readFileSync(join(dir, 'victim.txt'), 'utf8'), 'keep\n');
+    // a new file in a new folder is fine
+    const ok = await run('logging-probe', 'send', '--url', s.url, '--spec', join(dir, 'spec.json'), '--rate', '50', '-o', join(dir, 'new', 'sub', 'run.json'));
+    assert.equal(ok.status, 0, ok.stderr);
+    assert.ok(existsSync(join(dir, 'new', 'sub', 'run.json')));
+  } finally { await s.close(); }
+});
+
+test('logging-probe send: plain-http header warning uses the exact host (lookalike hosts are not local)', async () => {
+  const dir = tmp();
+  writeFileSync(join(dir, 'spec.json'), JSON.stringify({ openapi: '3.0.0', info: { title: 't', version: '1' }, paths: { '/a': { get: {} } } }));
+  const env = { ...process.env, TOK: 'x' };
+  for (const url of ['http://localhost-dev.invalid', 'http://127.0.0.1.dev.invalid', 'http://localhost.attacker.invalid', 'http://127.attacker.invalid']) {
+    const r = await run('logging-probe', 'send', '--url', url, '--spec', join(dir, 'spec.json'), '--rate', '50', '--timeout', '1', '--target-is-staging', '-o', join(dir, 'r.json'), '--header', 'Authorization: $TOK', { env });
+    assert.match(r.stderr, /WARNING: --header values go over plain http/, url);
+  }
+  const s = await staging();
+  try {
+    const r = await run('logging-probe', 'send', '--url', s.url, '--spec', join(dir, 'spec.json'), '--rate', '50', '-o', join(dir, 'r2.json'), '--header', 'Authorization: $TOK', { env });
+    assert.equal(r.status, 0, r.stderr);
+    assert.doesNotMatch(r.stderr, /plain http/);
+  } finally { await s.close(); }
 });
 
 test("logging-probe CLI: --base-path '' survives argument parsing", async () => {

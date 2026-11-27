@@ -370,11 +370,40 @@ test('yaml: many-line quoted scalars and deep comment runs parse in linear time'
   assert.ok(ms < 1000, `deep comment run took ${ms} ms`);
 });
 
-test('parseSpecText: JSON first, YAML otherwise; truncated JSON stays a JSON error', () => {
+test('parseSpecText: JSON first, YAML otherwise; both failing → the YAML reason with its line, never file content', () => {
   assert.deepEqual(parseSpecText('{"a": 1}'), { a: 1 });
   assert.deepEqual(parseSpecText('a: 1'), { a: 1 });
-  assert.throws(() => parseSpecText('{"paths": {"/x": '), /^Error: spec is not valid JSON$/);
+  assert.deepEqual(parseSpecText('{a: 1}'), { a: 1 });
+  assert.throws(() => parseSpecText('{"paths": {"/x": '), /^Error: spec is not valid JSON or YAML: unterminated flow collection \(line 1\)$/);
   assert.throws(() => parseSpecText('a: 1\na: 2'), /not valid JSON or YAML: duplicate key \(line 2\)/);
+  // flow-style YAML (starts with { or [): the YAML reason and line, not just "not valid JSON"
+  const flow = '{openapi: 3.0.0, info: {title: t, version: "1"},\n paths: {/a: {get: {}}, /a: {get: {}}}}\n';
+  assert.throws(() => parseSpecText(flow), /^Error: spec is not valid JSON or YAML: duplicate key \(line 2\)$/);
+  assert.throws(() => parseSpecText('{a: 1, a: 2}\n'), /duplicate key \(line 1\)/);
+  assert.throws(() => parseSpecText('{__proto__: 1}'), /__proto__ is not allowed \(line 1\)/);
+  assert.throws(() => parseSpecText('[a]: 1'), /\(line 1\)/);
+  // never file content (JSON.parse messages quote the input)
+  try { parseSpecText('{"secretKey": tokenVALUE123'); assert.fail('no error'); } catch (e) { assert.doesNotMatch(e.message, /secretKey|tokenVALUE123/); }
+});
+
+test('YAML tags on collections: scalar tags, !!map on a sequence and !!seq on a mapping are refused', () => {
+  assert.throws(() => parseYaml('a: !!str [1]\n'), /a !!str tag cannot be on a sequence \(line 1\)/);
+  assert.throws(() => parseYaml('a: !!int {b: 1}\n'), /a !!int tag cannot be on a mapping \(line 1\)/);
+  assert.throws(() => parseYaml('a: !!map [1]\n'), /does not match its !!map tag \(line 1\)/);
+  assert.throws(() => parseYaml('a: !!seq {b: 1}\n'), /does not match its !!seq tag \(line 1\)/);
+  assert.throws(() => parseYaml('a: !!seq 1\n'), /does not match its !!seq tag/);
+  assert.throws(() => parseYaml('a: !!map x\n'), /does not match its !!map tag/);
+  // block collections, the reported line is the tag's (inner tags do not move it)
+  assert.throws(() => parseYaml('x: 1\ny: !!str\n  b: [!!int 2]\n'), /a !!str tag cannot be on a mapping \(line 2\)/);
+  assert.throws(() => parseYaml('x: 1\ny:\n  - !!bool\n    - 1\n'), /a !!bool tag cannot be on a sequence \(line 3\)/);
+  // matching tags and empty values are fine
+  assert.deepEqual(parseYaml('a: !!seq\n  - 1\nb: !!map\n  c: 1\nd: !!seq [2]\ne: !!map {f: 3}\ng: !!map\n'), { a: [1], b: { c: 1 }, d: [2], e: { f: 3 }, g: null });
+  assert.deepEqual(parseYaml('a: !!str 1\n'), { a: '1' });
+});
+
+test('spec: deprecated only when it is exactly true (a quoted "false" is not deprecated)', () => {
+  const ops = loadSpec(parseYaml('openapi: 3.0.0\npaths:\n  /a:\n    get:\n      deprecated: "false"\n  /b:\n    get:\n      deprecated: true\n  /c:\n    get:\n      deprecated: 1\n')).ops;
+  assert.deepEqual(ops.map((o) => [o.path, o.deprecated]), [['/a', false], ['/b', true], ['/c', false]]);
 });
 
 const OPENAPI_YAML = `# Hand-written OpenAPI 3 file in the styles real tools emit.

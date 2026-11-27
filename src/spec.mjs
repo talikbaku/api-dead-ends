@@ -28,7 +28,7 @@ export function loadSpec(spec) {
       ops.push({
         method: m === 'any' ? 'ANY' : m.toUpperCase(),
         path: p,
-        deprecated: !!(op && op.deprecated),
+        deprecated: !!op && op.deprecated === true, // a quoted "false" is not deprecated
         operationId: typeof op.operationId === 'string' ? op.operationId.slice(0, 200) : undefined,
         re: buildRegex(base, segs),
         params,
