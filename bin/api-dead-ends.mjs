@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 // @ts-check
 import { parseArgs } from 'node:util';
-import { readFile, writeFile, mkdir, stat } from 'node:fs/promises';
+import { readFile, mkdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { parseUsage, addRow, toCsv } from '../src/usage.mjs';
 import { loadSpec, literalSegments } from '../src/spec.mjs';
+import { parseSpecText } from '../src/yaml.mjs';
 import { isIdSegment } from '../src/template.mjs';
 import { classify } from '../src/classify.mjs';
 import { runInit, UsageError } from '../src/setup/wizard.mjs';
@@ -38,6 +39,9 @@ Start here:
                                      "Not logged": endpoints seen by the ingress / load balancer / APM but missing from app logs.
   api-dead-ends logging-check [dir]  Static check: places in code/config that switch request logging off
                                      (nginx, ingress, morgan, pino-http, fastify, gin, echo, uvicorn, lograge, Next.js…).
+  api-dead-ends logging-probe send --url <STAGING> --spec F   ·   logging-probe verify --run probe-run-….json --logs F
+                                     Active check (staging only): one tagged GET per endpoint, then find the tags in your
+                                     exported app logs (any source) → which endpoints write no log record.
   api-dead-ends mcp                  Run as an MCP server (stdio) for Claude Code, Cursor, VS Code…
   api-dead-ends utcp                 Print a UTCP manual so UTCP clients can call this CLI directly.
 
@@ -64,7 +68,7 @@ Commands:
   api-dead-ends fetch kibana --url "<Kibana Discover URL>" --service X [--days 15]   (browser login, needs Playwright)
   api-dead-ends fetch victorialogs --url http://<victoria-logs>:9428 [--service X] [--hourly] [--errors errors.json]
       Pull the usage table straight from Elasticsearch/OpenSearch (API key in ES_API_KEY). Read-only, 3-hour windows.
-  api-dead-ends report --usage <usage.csv|json> --spec <openapi.json> [options]
+  api-dead-ends report --usage <usage.csv|json> --spec <openapi.json|yaml> [options]
       --days N            window length (default: inferred from first/last seen)
       --rare N            fewer calls than this = rare (default 100)
       --out DIR           write report.md + report.json there (default: print Markdown)
@@ -82,7 +86,7 @@ Pass --spec to query/convert/fetch too: literal spec segments (oauth2, 2024, …
 Field flags: --method-field --path-field --status-field --service-field --time-field --metric --preset --map
              --exclude-filter 'message.keyword:"<duplicate message>"' (Elasticsearch: drop records that duplicate a request)
              --access-filter  'message.keyword:"Request"' (keep only access records — check first that every request has one)
-Exit codes: 0 ok · 1 CI check failed · 2 bad input. Never fails on "not seen" — that needs a human.`;
+Exit codes: 0 ok · 1 CI check failed (or logging-probe: nothing reached / no marker found) · 2 bad input. Never fails on "not seen" — that needs a human.`;
 
 let parsed;
 try {
@@ -99,10 +103,12 @@ try {
     help: { type: 'boolean', short: 'h' }, version: { type: 'boolean', short: 'v' },
     yes: { type: 'boolean', short: 'y' }, json: { type: 'boolean' }, 'dry-run': { type: 'boolean' }, force: { type: 'boolean' },
     source: { type: 'string' }, services: { type: 'string' }, routes: { type: 'string' }, access: { type: 'string' }, ai: { type: 'string' },
-    files: { type: 'string' }, logs: { type: 'string' }, dir: { type: 'string' }, 'log-name': { type: 'string' },
+    files: { type: 'string' }, logs: { type: 'string', multiple: true }, dir: { type: 'string' }, 'log-name': { type: 'string' },
     response: { type: 'string' }, daily: { type: 'boolean' }, hourly: { type: 'boolean' }, tz: { type: 'string' }, errors: { type: 'string' }, html: { type: 'boolean' },
     duplicates: { type: 'string' }, reference: { type: 'string' }, 'include-today': { type: 'boolean' }, 'dup-window': { type: 'string' },
     pages: { type: 'string' }, 'api-host': { type: 'string' }, 'error-hours': { type: 'string' }, 'trace-field': { type: 'string' }, 'error-field': { type: 'string' }, login: { type: 'boolean' }, headed: { type: 'boolean' }, probe: { type: 'string' }, 'slow-ms': { type: 'string' }, 'error-min': { type: 'string' }, 'error-share': { type: 'string' }, title: { type: 'string' }, tenant: { type: 'string' }, 'max-rows': { type: 'string' },
+    run: { type: 'string' }, rate: { type: 'string' }, timeout: { type: 'string' }, 'max-ops': { type: 'string' }, 'include-writes': { type: 'boolean' }, 'i-understand-this-is-staging': { type: 'boolean' },
+    'target-is-staging': { type: 'boolean' }, header: { type: 'string', multiple: true }, 'base-path': { type: 'string' },
   },
   });
 } catch (e) {
@@ -110,6 +116,11 @@ try {
   process.exit(2);
 }
 const { values: v, positionals: pos } = parsed;
+// --logs may be repeated (logging-probe verify reads every file); init and the others take one string: several values
+// become one space-separated list, which is what `convert accesslog <file...>` expects.
+/** @type {string[]} */
+const logsList = Array.isArray(v.logs) ? v.logs.map(String) : [];
+if (pos[0] !== 'logging-probe') /** @type {any} */ (v).logs = logsList.length ? logsList.join(' ') : undefined;
 const INIT_HELP = `api-dead-ends init — step-by-step setup. Scans the repo (read-only), asks a few questions, writes
 api-dead-ends.config.json and .api-dead-ends/NEXT-STEPS.md. Never changes code, never overwrites without --force.
 
@@ -118,7 +129,7 @@ api-dead-ends.config.json and .api-dead-ends/NEXT-STEPS.md. Never changes code, 
   --source S            ${'elasticsearch, datadog-apm, datadog, prometheus, loki, appinsights, cloudwatch, newrelic,'}
                         dynatrace, splunk, accesslog, csv, none
   --service / --services a,b   only these services (names, dirs or numbers from the scan)
-  --spec F              OpenAPI JSON (one service)       --routes F   framework route list (one service)
+  --spec F              OpenAPI JSON/YAML (one service)  --routes F   framework route list (one service)
   --logs F              access log files / CSV export (sources accesslog, csv)
   --access kibana|api-key|paste --url U --index P   Elasticsearch: browser login to Kibana (default when asked),
                         read-only API key, or paste a query by hand (default with --yes and no --url)
@@ -173,7 +184,7 @@ Reads VictoriaLogs over its HTTP API (LogsQL, read-only). Method/path/status/tra
   --tenant A:P       multi-tenant AccountID:ProjectID    VL_AUTH env      whole Authorization header (Basic … / Bearer …)
   --errors F         error texts: records without a status in the same traces as the 5xx (any service, e.g. the app behind the gateway)
   --max-rows N       groups per day (default 50000); more → a warning, only the biggest kept`,
-  report: `api-dead-ends report --usage usage.csv --spec openapi.json [--days N] [--out DIR] [--json]
+  report: `api-dead-ends report --usage usage.csv --spec <openapi.json|yaml> [--days N] [--out DIR] [--json]
 Writes report.md, report.json and report.html (with --out), or prints Markdown / JSON.
   --days N          window length when the data has no dates     --rare N         fewer calls = rare (default 100)
   --error-share P   server-error finding: 5xx ≥ P% (default 1)    --error-min N    … and ≥ N responses (default 10)
@@ -197,6 +208,36 @@ which documented endpoints the pages call. Navigation only (no clicks or forms),
 Static scan for settings that switch request logging off (nginx access_log off, ingress enable-access-log, morgan skip,
 pino-http ignore, fastify disableRequestLogging, gin SkipPaths, echo Skipper, uvicorn --no-access-log, lograge ignore,
 Next.js middleware matcher, Spring excludePathPatterns, Serilog filters). Unknown frameworks are reported as unknown.`,
+  'logging-probe': `api-dead-ends logging-probe send --url <STAGING base URL> --spec openapi.json [-o probe-run.json] [--dry-run]
+      [--header 'Name: $ENV_VAR']… [--base-path P] [--rate 2] [--timeout 10] [--max-ops 300] [--target-is-staging]
+api-dead-ends logging-probe verify --run probe-run.json --logs <export file|-> [--logs more…] [more files…] [--json] [-o FILE.md|FILE.json|DIR]
+Active "Not logged" check that works with any log source. NEVER point it at production.
+(Not the same as \`logging-check\`, the static scan of code and config.)
+  send     one request per spec operation (GET/HEAD only; path parameters → "ade-probe"), each tagged with a unique marker
+           ade-<run>-NNNN in the X-ADE-Probe header, the User-Agent and ?ade_probe=. Redirects are not followed, response
+           bodies are not read, every URL must stay on the --url host. Writes a run manifest (operation → marker, status,
+           latency) and prints search queries for Kibana, VictoriaLogs, Loki, CloudWatch… to export the run's time window.
+           Exit 1 when no request reached the target.
+  verify   streams the exported logs (.gz ok, - = stdin) and looks for each marker: logged / NOT logged / answered by
+           gateway/auth (401/403/404/3xx, handler maybe not reached) / not reached / unknown (no marker found at all:
+           check the export; exit 1). Shows in which file each marker was found.
+  -o F (send)         manifest file (default: probe-run-<run>.json in the current folder; -o - = stdout)
+  -o F (verify)       F.md → Markdown, F.json → JSON, anything else → a folder with logging-probe.md and logging-probe.json;
+                      without -o: Markdown on stdout (--json: JSON)
+  --dry-run           print the plan (requests, URLs, operations not sent); send nothing, write nothing
+  --header 'N: V'     extra request header, e.g. auth; repeatable. 'Authorization: $STAGING_TOKEN' reads the value from the
+                      environment (keeps it out of shell history). Values are never written to the manifest or printed.
+  --base-path P       path between --url and the spec paths (default: the spec's servers[0].url / basePath, with server
+                      variable defaults, left out when the --url path already contains it; '' = none)
+  --rate N            requests per second (default 2, max 50)   --timeout S   seconds per request (default 10)
+  --max-ops N         send at most N operations (default 300)
+  --target-is-staging the host name does not look like staging (stag*, stg, test, dev, qa, uat, sandbox, local, localhost,
+                      private IPs; never a name with "prod") but it is: send anyway. Without it such a host is refused, or
+                      you are asked to confirm when running in a terminal.
+  --include-writes --i-understand-this-is-staging   also POST/PUT/PATCH/DELETE, as a deliberately invalid request
+           (Content-Type: application/json, body {}). Both flags are required, and only on a host that looks like
+           staging. Risk: endpoints that need no body (POST …/cancel, POST /internal/sync, DELETE …) may really run —
+           only on disposable staging data.`,
   detect: `api-dead-ends detect [dir]   Read-only scan: services, languages, frameworks, specs, route files, observability hints (JSON).`,
   mcp: `api-dead-ends mcp   Stdio MCP server. Read tools: detect_project, setup_plan, build_query, spec_from_routes, analyze_usage. Write tools: init, write_report.`,
   utcp: `api-dead-ends utcp   Prints a UTCP manual whose tools call this CLI directly.`,
@@ -223,7 +264,7 @@ if (cmd0 === 'probe') {
   const { probe, probeToMarkdown } = await import('../src/probe.mjs');
   if (!pos[1]) { console.error('Usage: api-dead-ends probe <url> [--pages 20] [--login] [--spec openapi.json] [--out dir]'); process.exit(2); }
   let pspec = null;
-  try { pspec = v.spec ? loadSpec(JSON.parse(await readFile(v.spec, 'utf8'))) : null; } catch (e) { console.error(`Error: ${String(/** @type {Error} */ (e).message).split('\n')[0]}`); process.exit(2); }
+  try { pspec = v.spec ? loadSpec(parseSpecText(await readFile(v.spec, 'utf8'))) : null; } catch (e) { console.error(`Error: ${String(/** @type {Error} */ (e).message).split('\n')[0]}`); process.exit(2); }
   const { createInterface } = await import('node:readline');
   const waitForEnter = () => new Promise((res) => { const rl = createInterface({ input: process.stdin }); rl.once('line', () => { rl.close(); res(undefined); }); });
   try {
@@ -247,7 +288,7 @@ if (cmd0 === 'coverage') {
   const { coverage, coverageToMarkdown } = await import('../src/coverage.mjs');
   if (!v.usage || !v.reference) { console.error('Usage: api-dead-ends coverage --usage app-logs.csv --reference ingress.csv [--spec openapi.json] [--out dir]\n  Which endpoints reach the reference source (ingress, load balancer, APM) but are missing from the application logs.'); process.exit(2); }
   let cspec = null;
-  try { cspec = v.spec ? loadSpec(JSON.parse(await readFile(v.spec, 'utf8'))) : null; } catch (e) { console.error(`Error: ${String(/** @type {Error} */ (e).message).split('\n')[0]}`); process.exit(2); }
+  try { cspec = v.spec ? loadSpec(parseSpecText(await readFile(v.spec, 'utf8'))) : null; } catch (e) { console.error(`Error: ${String(/** @type {Error} */ (e).message).split('\n')[0]}`); process.exit(2); }
   const ckeep = cspec ? literalSegments(cspec, isIdSegment) : new Set();
   const c = coverage(parseUsage(await readOr2(String(v.usage)), { keep: ckeep }), parseUsage(await readOr2(String(v.reference)), { keep: ckeep }), cspec);
   const md = coverageToMarkdown(c);
@@ -260,9 +301,14 @@ if (cmd0 === 'coverage') {
   } else process.stdout.write(md);
   await exitAfterFlush(0);
 }
+if (cmd0 === 'check-logging') fail(`Unknown command check-logging. Did you mean: api-dead-ends logging-probe ${pos[1] === 'verify' ? 'verify' : 'send'} …? (active check; logging-probe --help) or api-dead-ends logging-check [dir] (static scan)?`);
 if (cmd0 === 'logging-check') {
+  // The mirror-named active check is `logging-probe send|verify`: a swapped name must not silently report "nothing found".
+  if (pos[1] === 'send' || pos[1] === 'verify') fail(`logging-check is the static scan of code and config. Did you mean: api-dead-ends logging-probe ${pos[1]} …? (logging-probe --help)`);
+  for (const k of ['url', 'spec', 'run']) if (v[k] !== undefined) fail(`logging-check does not take --${k} (it scans a folder). For the active check use: api-dead-ends logging-probe send|verify (logging-probe --help)`);
   const { logCheck } = await import('../src/logcheck.mjs');
   const root = pos[1] || '.';
+  if (!(await stat(root).then((x) => x.isDirectory()).catch(() => false))) fail(`Error: ${root} is not a folder. Usage: api-dead-ends logging-check [dir] [--json]`);
   const det = await detectProject(root);
   const r = await logCheck(root, { frameworks: det.services.flatMap((s) => s.frameworks) });
   if (v.json) process.stdout.write(JSON.stringify(r, null, 2) + '\n');
@@ -273,6 +319,119 @@ if (cmd0 === 'logging-check') {
     console.log(r.note);
   }
   await exitAfterFlush(0);
+}
+if (cmd0 === 'logging-probe') {
+  const lp = await import('../src/logprobe.mjs');
+  const sub = pos[1];
+  const err = (/** @type {unknown} */ e) => lp.clean(String(/** @type {Error} */ (e)?.message || e).split('\n')[0].slice(0, 300));
+  /** Refuse flags the subcommand does not use (a silently ignored --dry-run or --yes would mislead). @param {string[]} allowed */
+  const onlyFlags = (allowed) => {
+    const extra = Object.keys(v).filter((k) => v[/** @type {keyof typeof v} */ (k)] !== undefined && !allowed.includes(k));
+    if (extra.length) fail(`logging-probe ${sub} does not take ${extra.map((k) => `--${k}`).join(', ')} (logging-probe --help)`);
+  };
+  if (sub === 'send') {
+    onlyFlags(['url', 'spec', 'out', 'rate', 'timeout', 'max-ops', 'include-writes', 'i-understand-this-is-staging', 'target-is-staging', 'dry-run', 'header', 'base-path']);
+    if (pos.length > 2) fail(`logging-probe send: unexpected argument ${lp.clean(pos[2])}`);
+    if (!v.url || !v.spec) fail('Usage: api-dead-ends logging-probe send --url <STAGING base URL> --spec openapi.json [-o probe-run.json] [--dry-run]   (logging-probe --help)');
+    if (!!v['include-writes'] !== !!v['i-understand-this-is-staging']) fail('Write methods need both --include-writes and --i-understand-this-is-staging (see logging-probe --help for the risk).');
+    let doc, lspec;
+    try { doc = parseSpecText(await readFile(v.spec, 'utf8')); lspec = loadSpec(doc); } catch (e) { fail(`Error: ${err(e)}`); }
+    let t;
+    try { t = lp.checkTarget(String(v.url)); } catch (e) { fail(`Error: ${err(e)}`); }
+    /** @type {Array<[string, string]>} */
+    const headers = [];
+    try { for (const h of v.header || []) headers.push(lp.parseHeader(String(h))); } catch (e) { fail(`Error: ${err(e)}`); }
+    const rate = numFlag('rate', 0.1, 50) ?? 2;
+    const timeoutMs = (numFlag('timeout', 1, 300) ?? 10) * 1000;
+    const maxOps = numFlag('max-ops', 1, 5000) ?? 300;
+    const baseOverride = v['base-path'] === undefined ? undefined : String(v['base-path']);
+    const specBase = lp.specBasePath(doc);
+    const includeWrites = !!v['include-writes'];
+    const planned = lp.planProbes(/** @type {any} */ (lspec), { basePath: t.path, specBase, baseOverride, origin: t.origin, includeWrites, maxOps });
+    const gate = lp.stagingGate({ origin: t.origin, includeWrites, targetIsStaging: !!v['target-is-staging'], tty: !!(process.stdin.isTTY && process.stderr.isTTY) });
+    if (v['dry-run']) {
+      process.stdout.write(`Dry run: nothing is sent, nothing is written. Target ${lp.clean(t.origin + t.path)}${headers.length ? `, extra headers: ${headers.map(([k]) => k).join(', ')} (values hidden)` : ''}.\n`);
+      process.stdout.write(lp.planToText(planned) + '\n');
+      if (gate.action !== 'go') process.stdout.write(`\nNote: a real run would ${gate.action === 'ask' ? 'ask for confirmation' : 'be refused'}: ${gate.reason}\n`);
+      await exitAfterFlush(0);
+    }
+    if (!planned.plan.length) fail(`Nothing to send: ${planned.notSent.length} operation(s), none of them can be probed (see --dry-run for the reasons).`);
+    console.error(`WARNING: logging-probe sends real requests to ${lp.clean(t.origin)}. Use it on STAGING only — never on production.`);
+    if (gate.action === 'refuse') fail(`Refused: ${gate.reason}`);
+    if (lp.nodeHasBrotliBug()) console.error(`Note: Node ${process.versions.node} has an unfixed Brotli decoder bug (CVE-2026-111497, fixed in 22.23.5 and 24.22.3). logging-probe send never decompresses responses, but update Node.`);
+    if (gate.action === 'ask') {
+      const { createInterface } = await import('node:readline');
+      const rl = createInterface({ input: process.stdin, output: process.stderr });
+      const a = await new Promise((res) => { rl.once('close', () => res('')); rl.question(`${gate.reason} Send ${planned.plan.length} request(s) to it anyway? It must be staging. [y/N]: `, res); });
+      rl.close();
+      if (!/^y(es)?$/i.test(String(a).trim())) fail('Nothing sent.');
+    }
+    if (includeWrites) console.error('WARNING: --include-writes: POST/PUT/PATCH/DELETE are sent as invalid requests ({}); endpoints that need no body may really run.');
+    if (headers.length && t.origin.startsWith('http:') && !/^http:\/\/(localhost|127\.|\[::1\])/.test(t.origin)) console.error('WARNING: --header values go over plain http.');
+    const run = lp.newRunId();
+    const out = v.out === undefined ? `probe-run-${run}.json` : String(v.out);
+    const toOut = out !== '-';
+    if (toOut) await mkdir(join(out, '..'), { recursive: true }).catch(() => {}); // before sending: the manifest is the only marker → operation map
+    let m;
+    try { m = await lp.sendProbes({ url: String(v.url), spec: /** @type {any} */ (lspec), specBase, baseOverride, headers, includeWrites, rate, timeoutMs, maxOps, run, version: VERSION, log: (s) => console.error(s) }); }
+    catch (e) { fail(`Error: ${err(e)}`); }
+    const json = JSON.stringify(m, null, 2) + '\n';
+    if (toOut) {
+      try { await writeSafe(out, json); }
+      catch (e) { console.error(`Could not write ${lp.clean(out)}: ${err(e)} — the manifest follows on stdout; save it, verify needs it.`); process.stdout.write(json); await exitAfterFlush(1); }
+    } else process.stdout.write(json);
+    const reached = m.probes.filter((/** @type {any} */ p) => p.status).length;
+    if (!reached) {
+      console.error(`No request reached the target: all ${m.probes.length} failed (${[...new Set(m.probes.map((/** @type {any} */ p) => p.error))].join(', ')}). Check --url, VPN and DNS.${toOut ? ` Manifest: ${lp.clean(out)}` : ''}`);
+      await exitAfterFlush(1);
+    }
+    console.error(`${m.probes.length} requests sent (${m.probes.length - reached} failed), ${m.notSent.length} operations not sent${toOut ? ` → ${lp.clean(out)}` : ''}\n`);
+    console.error(lp.searchHints(m, toOut ? lp.clean(out) : '<the manifest from stdout, saved to a file>'));
+    await exitAfterFlush(0);
+  }
+  if (sub === 'verify') {
+    onlyFlags(['run', 'logs', 'out', 'json']);
+    const files = [...logsList, ...pos.slice(2)];
+    if (!v.run || !files.length) fail('Usage: api-dead-ends logging-probe verify --run probe-run.json --logs <export file|-> [--logs more…] [--json] [-o FILE.md|FILE.json|DIR]');
+    if (files.filter((f) => f === '-').length > 1) fail('stdin (-) can be read only once');
+    let m;
+    try { m = lp.checkManifest(JSON.parse(await readFile(String(v.run), 'utf8'))); } catch (e) { fail(`Error: ${lp.clean(v.run)}: ${err(e)}`); }
+    /** @type {Map<number, number>} */
+    const hits = new Map();
+    /** @type {Array<{ file: string, hits: Map<number, number> }>} */
+    const perFile = [];
+    let bytes = 0, lines = 0;
+    for (const f of files) {
+      /** @type {Map<number, number>} */
+      const fh = new Map();
+      try { const st = await lp.scanStream(lp.openLog(f), m.run, fh); bytes += st.bytes; lines += st.lines; }
+      catch (e) { fail(`Error: cannot read ${lp.clean(f)}: ${err(e)}`); }
+      for (const [k, n] of fh) hits.set(k, (hits.get(k) || 0) + n);
+      perFile.push({ file: f, hits: fh });
+    }
+    const r = lp.verdicts(m, hits, { files, perFile, bytes, lines });
+    const md = lp.verdictsToMarkdown(r);
+    const rj = JSON.stringify(r, null, 2) + '\n';
+    const o = v.out === undefined || v.out === '-' ? '' : String(v.out);
+    /** @type {string} */
+    let wrote = '';
+    try {
+      if (/\.md$/i.test(o)) { await writeSafe(o, md); wrote = o; }
+      else if (/\.json$/i.test(o)) { await writeSafe(o, rj); wrote = o; }
+      else if (o) {
+        await mkdir(o, { recursive: true });
+        await writeSafe(join(o, 'logging-probe.md'), md);
+        await writeSafe(join(o, 'logging-probe.json'), rj);
+        wrote = join(o, 'logging-probe.md');
+      }
+    } catch (e) { fail(`Error: cannot write ${lp.clean(o)}: ${err(e)}`); }
+    if (!o) process.stdout.write(v.json ? rj : md);
+    else if (v.json) process.stdout.write(rj);
+    console.error(`${lp.summaryLine(r.totals)}${wrote ? ` → ${lp.clean(wrote)}` : ''}`);
+    for (const w of r.warnings) console.error(`WARNING: ${w}`);
+    await exitAfterFlush(r.found ? 0 : 1);
+  }
+  fail('Usage: api-dead-ends logging-probe send --url <STAGING base URL> --spec openapi.json [-o probe-run.json] [--dry-run]\n       api-dead-ends logging-probe verify --run probe-run.json --logs <export file|->   (logging-probe --help)');
 }
 if (cmd0 === 'detect') { console.log(JSON.stringify(await detectProject(pos[1] || '.'), null, 2)); await exitAfterFlush(0); }
 if (cmd0 === 'spec') {
@@ -289,7 +448,7 @@ if (cmd0 === 'spec') {
 // Spec first: literal spec segments (oauth2, 2024…) are never folded into {id}.
 let spec = null;
 try {
-  spec = v.spec ? loadSpec(JSON.parse(await readFile(v.spec, 'utf8'))) : null;
+  spec = v.spec ? loadSpec(parseSpecText(await readFile(v.spec, 'utf8'))) : null;
 } catch (e) {
   console.error(`Error: ${String(/** @type {Error} */ (e).message).split('\n')[0]}`);
   process.exit(2);
@@ -317,12 +476,17 @@ try {
     if (!src || !pos[2]) fail('Usage: api-dead-ends convert <source> <response-file> [-o usage.csv]');
     /** @type {Map<string, any>} */
     const acc = new Map();
+    if (v.duplicates === '-' && toStdout(v.out)) fail('--duplicates - would mix with the usage CSV on stdout. Give a file name (--duplicates dup.json), or write the CSV to a file with -o usage.csv.');
     if (pos[1] === 'accesslog') {
       const st = await accesslog.stream(pos.slice(2), (r) => addRow(acc, r, { keep, daily: v.daily, hourly: v.hourly, dayFromTime: true }), v.duplicates ? { duplicates: { windowSec: v['dup-window'] ? Number(v['dup-window']) : 2, keep } } : {});
       console.error(`${st.lines} lines read, ${st.bad} not recognized`);
       if (st.duplicates) {
-        await writeFile(v.duplicates, JSON.stringify(st.duplicates, null, 2) + '\n');
-        console.error(`${st.duplicates.rows.length} endpoints with repeated non-GET requests → ${v.duplicates} (add to the report: report … --duplicates ${v.duplicates})`);
+        const dupJson = JSON.stringify(st.duplicates, null, 2) + '\n';
+        if (v.duplicates === '-') process.stdout.write(dupJson);
+        else {
+          await writeSafe(String(v.duplicates), dupJson);
+          console.error(`${st.duplicates.rows.length} endpoints with repeated non-GET requests → ${v.duplicates} (add to the report: report … --duplicates ${v.duplicates})`);
+        }
       }
     } else {
       for (const f of pos.slice(2)) for (const r of src.parse(await readFile(f, 'utf8'), fields)) addRow(acc, r, { keep, daily: v.daily, hourly: v.hourly });
@@ -371,7 +535,8 @@ try {
     await emit(v.out, csv);
     if (skipped.length) console.error(`WARNING: ${skipped.length} time windows skipped — usage table is incomplete.`);
   } else if (cmd === 'report') {
-    if (!v.usage || !spec) fail('Usage: api-dead-ends report --usage <usage.csv> --spec <openapi.json>\n  usage.csv comes from `convert` or `fetch` (traffic data). No spec? `api-dead-ends spec from-routes <routes.txt>`. Not sure where to start? `api-dead-ends init`.');
+    if (!v.usage || !spec) fail('Usage: api-dead-ends report --usage <usage.csv> --spec <openapi.json|yaml>\n  usage.csv comes from `convert` or `fetch` (traffic data). No spec? `api-dead-ends spec from-routes <routes.txt>`. Not sure where to start? `api-dead-ends init`.');
+    if (v['write-baseline'] === '-' && toStdout(v.out)) fail('--write-baseline - would mix with the report on stdout. Give a file name (--write-baseline baseline.json), or write the report to a folder with --out DIR.');
     const usageText = await readFile(v.usage, 'utf8');
     const dailyRows = parseUsage(usageText, { keep, daily: true });
     const hourlyRows = parseUsage(usageText, { keep, hourly: true });
@@ -413,7 +578,7 @@ try {
       console.error(toTerminal(r, { color: process.stderr.isTTY && !process.env.NO_COLOR, spikes: extra.spikes, changes: extra.changes, tz: v.tz }) + '\n');
       console.error(`${t.operations} operations: server errors ${t.serverErrors} (+${t.serverErrorsBelowThreshold} below threshold), undocumented ${t.shadow}${t.ambiguous ? ` (${t.ambiguous} a word on a parameter)` : ''}, not called ${t.not_seen}, rare ${t.rare}, deprecated in use ${t.deprecated_in_use}, used ${t.used} → ${join(v.out, 'report.md')} · report.html`);
     } else process.stdout.write(md);
-    if (v['write-baseline']) await writeFile(v['write-baseline'], JSON.stringify(makeBaseline(r), null, 2) + '\n');
+    if (v['write-baseline']) await emit(v['write-baseline'], JSON.stringify(makeBaseline(r), null, 2) + '\n');
     if (v.baseline) {
       const cmp = compareBaseline(r, JSON.parse(await readFile(v.baseline, 'utf8')), { failOn });
       for (const s of cmp.newShadow) console.error(`NEW SHADOW: ${s.method} ${s.path} (${s.calls} calls)`);

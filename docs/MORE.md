@@ -14,7 +14,7 @@ npx api-dead-ends init
 2. **Asks** a few questions — press Enter to accept the default in brackets:
    - where your traffic is (Elasticsearch/Kibana, Datadog APM or Logs, Prometheus, Loki, App Insights, CloudWatch, New Relic, Dynatrace, Splunk, access log files, any CSV, or nothing yet);
    - which services to include and their names in that tool;
-   - the OpenAPI JSON for each service, or a route list file if there is no spec;
+   - the OpenAPI file (JSON or YAML) for each service, or a route list file if there is no spec;
    - the window in days;
    - whether to write instructions for your AI assistant.
 3. **Writes** `api-dead-ends.config.json` and `.api-dead-ends/NEXT-STEPS.md` with the exact commands for every service. It never changes your code and never overwrites files without `--force`.
@@ -94,6 +94,39 @@ Without traffic there is no report — an empty table would mark every endpoint 
 - **Next.js on Vercel:** runtime logs are short-lived (about 1 hour on Hobby, 1 day on Pro). Use a log drain (Pro) or OpenTelemetry (`@vercel/otel`) to a backend, then pick that source.
 - `probe <url>` checks the front end from a browser today, with no logs at all. Planned: a tiny in-repo recorder for Node.
 
+## Logging coverage: which endpoints write no logs
+
+Three checks, from cheap to certain:
+
+- `logging-check [dir]` — static: finds explicit "do not log" settings in code and config (nginx `access_log off`, morgan `skip`, pino-http `ignore`, Next.js `matcher`…).
+- `coverage --usage app.csv --reference ingress.csv` — compares two sources you already have: endpoints the ingress / APM sees but the app logs miss or under-count.
+- `logging-probe` — active, **staging only**. Works with any log source, in two steps:
+
+```bash
+api-dead-ends logging-probe send --url https://staging.example.com --spec openapi.json --dry-run   # look at the plan first
+api-dead-ends logging-probe send --url https://staging.example.com --spec openapi.json --header 'Authorization: $STAGING_TOKEN'
+# → probe-run-<run>.json; export the app's logs for the printed time window (Kibana, VictoriaLogs, Loki, CloudWatch, plain files…), then:
+api-dead-ends logging-probe verify --run probe-run-<run>.json --logs export.jsonl [--logs more files…] -o out/
+```
+
+`send` makes one GET/HEAD request per spec operation (path parameters become `ade-probe`), 2 per second by default, each tagged with a unique marker `ade-<run>-NNNN` in the `X-ADE-Probe` header, the User-Agent and the query (`?ade_probe=`) — access logs usually record at least one of these. The path between `--url` and the spec paths comes from the spec (`servers[0].url` with the server variables' defaults, or Swagger `basePath`), left out when the `--url` path already contains it; `--base-path P` replaces it (`''` = none). Every request URL must stay on the `--url` host; anything else is not sent. Redirects are not followed and response bodies are never read; the run manifest (`probe-run-<run>.json` in the current folder unless you pass `-o`; `-o -` = stdout) keeps only operation → marker, status and latency. `--header 'Name: value'` (repeatable) adds e.g. auth; `'Name: $ENV_VAR'` takes the value from the environment so it stays out of shell history. Header values are never written to the manifest or printed. `--dry-run` prints the plan (requests, URLs, operations not sent) and sends and writes nothing. If no request reaches the target, `send` says so and exits 1. Otherwise it prints search queries for common sources (KQL, LogsQL, LogQL, CloudWatch, Datadog, grep), each with a placeholder for your service.
+
+Export only the logs of the application you want to check. Ingress, nginx, gateway and load balancer access logs record every request, so mixed into the export they make everything look logged; `verify` warns when a file name looks like one and shows in which file each marker was found.
+
+`verify` streams the export (`.gz` and `-` for stdin are fine; single-line JSON exports too; `--logs` can be repeated) and reports per operation:
+
+- **logged** — a log record has its marker (the "Found in" column says which file);
+- **NOT logged** — the request got a response, no log record has its marker;
+- **answered by gateway/auth (handler maybe not reached)** — the response was 401/403/404 or a redirect and no marker was found: a gateway, auth layer or router probably answered before the handler. Pass credentials with `--header` and send again;
+- **not reached** — the request failed;
+- **unknown (check the export)** — no marker of the run was found anywhere, so the export is probably wrong (other source or window, logs not shipped yet). `verify` exits 1.
+
+`-o` for `verify`: `FILE.md` → Markdown, `FILE.json` → JSON, anything else is a folder with `logging-probe.md` and `logging-probe.json`. Without `-o` the Markdown goes to stdout (`--json`: JSON).
+
+Why an endpoint is missing: the route is registered before the logging middleware or in a separate router/app, a skip/ignore rule (run `logging-check`), sampling, a gateway answering 401/403/404/3xx before the app, or filters in the log shipper.
+
+Never point `send` at production. If the host name does not look like staging (`stag*`, `stg`, `test`, `dev`, `qa`, `uat`, `sandbox`, `local`, localhost, private IPs; a name with `prod` in any part never counts), `send` refuses unless you add `--target-is-staging`, or asks you to confirm when it runs in a terminal. `--include-writes --i-understand-this-is-staging` (both required) also sends POST/PUT/PATCH/DELETE as a deliberately invalid request (`Content-Type: application/json`, body `{}`); on a host that does not look like staging this is always refused. Endpoints that need no body — `POST …/cancel`, `POST /internal/sync`, a `DELETE` — can really run, so use it only on disposable staging data. `send` and `verify` refuse flags they do not use. `logging-probe` is CLI only; the MCP server has no tool that sends requests. (`logging-check send` is an error that points here.)
+
 ## What is written to disk
 
 | File | Contains | Safe to commit? |
@@ -102,6 +135,7 @@ Without traffic there is no report — an empty table would mark every endpoint 
 | `.api-dead-ends/NEXT-STEPS.md`, `AGENT.md` | commands and rules | yes |
 | `.api-dead-ends/<service>/response.json` | the raw source response — **raw paths may contain tokens or IDs** | no; delete after `convert` |
 | `usage.csv`, `report.md`, `report.json` | templated paths: numbers, UUIDs, hex, e-mails and token-like segments → `{id}`; query strings, `;params` and encoded `?` dropped. A plain lowercase word used as a secret (e.g. a reset code without digits) can still pass | review before sharing; internal paths |
+| `probe-run-<run>.json`, `logging-probe.md/.json` (`logging-probe`) | run id, target base URL, spec paths, marker per operation, status code, latency, names of `--header` headers (never values), file names of the log exports; no response bodies, no log lines | yes, if the staging URL is not secret |
 
 `init` writes `.api-dead-ends/.gitignore`, which keeps everything except NEXT-STEPS.md and AGENT.md out of git.
 
@@ -120,7 +154,7 @@ Exit codes: `0` ok · `1` check failed · `2` bad input. CI **never** fails on `
 - **Coverage.** Traffic that bypasses the logged layer, or endpoints that do not log, are invisible.
 - **Double counting.** Some services log two records per failed request. Exclude the duplicate with `--exclude-filter` (Elasticsearch), or error shares will be inflated.
 - **Path templating.** IDs are folded to `{id}` by rules (numbers, UUID, ULID, long hex, anything with digits ≥ 6 chars, e-mail-like); literal segments from your spec are kept.
-- **Specs** must be JSON. Convert YAML first (for example `npx @redocly/cli bundle openapi.yaml --ext json -o openapi.json`).
+- **Specs** can be JSON or YAML (any file extension; JSON is tried first). The built-in YAML reader covers what OpenAPI files use (block and flow collections, quoted and block scalars, anchors/aliases and `<<` merges with an expansion cap, explicit `? key` entries with a scalar key, the core tags `!!str` `!!int` `!!float` `!!bool` `!!null`); it refuses custom tags, collections used as keys, duplicate keys and a `__proto__` key.
 
 ## FAQ
 
@@ -134,7 +168,7 @@ Everything in the "Undocumented" section: method + path pairs that real clients 
 Yes. Build one from your framework's route list with `spec from-routes` (Rails, Flask, Django, Spring, Gin, Echo, Laravel, Express…).
 
 ### Does it send my logs anywhere?
-No. It reads aggregated counts locally. The only network access is what you start yourself: `fetch elasticsearch` / `fetch kibana` to your own cluster, and `probe <url>` to the site you name.
+No. It reads aggregated counts locally. The only network access is what you start yourself: `fetch elasticsearch` / `fetch kibana` / `fetch victorialogs` to your own cluster, `probe <url>` to the site you name, and `logging-probe send --url` to the staging URL you name (marked test requests, GET/HEAD only unless you add two explicit flags; your logs are read locally by `logging-probe verify`).
 
 ### What about shadow APIs and zombie APIs?
 Shadow APIs are the "Undocumented" endpoints. Zombie APIs are usually "Deprecated but still called" or "Not called" endpoints that are still deployed.

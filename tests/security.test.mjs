@@ -9,6 +9,7 @@ import { join } from 'node:path';
 import { makeRepo } from './fixtures/make-repo.mjs';
 import { parseUsage, toCsv } from '../src/usage.mjs';
 import { loadSpec, matchOp } from '../src/spec.mjs';
+import { parseYaml } from '../src/yaml.mjs';
 import { classify } from '../src/classify.mjs';
 import { toMarkdown } from '../src/report.mjs';
 import { templatePath } from '../src/template.mjs';
@@ -149,4 +150,77 @@ test('write_report and report --out never write through a planted symlink', asyn
   const c = run(repo, ['report', '--usage', 'u.csv', '--spec', 'services/gateway/openapi.json', '--out', '.api-dead-ends/x/report']);
   assert.notEqual(c.status, 0);
   assert.equal(readFileSync(join(base, 'victim.txt'), 'utf8'), 'keep me\n');
+});
+
+// ---------------------------------------------------------------------------
+// 0.3.0 recent-CVE audit
+// ---------------------------------------------------------------------------
+
+test('0.3.0 audit: YAML aliases to big strings are capped by characters, not only by nodes', () => {
+  const big = 'x'.repeat(100 * 1024);
+  const src = `s: &s "${big}"\nlist:\n${'  - *s\n'.repeat(200)}`; // ~107 KB spec, 20 MB if expanded
+  assert.throws(() => parseYaml(src), /aliases expand to too many nodes/);
+  // the same aliases through merge keys
+  const m = `base: &b {k: "${big}"}\n${Array.from({ length: 200 }, (_, i) => `m${i}: {<<: *b}`).join('\n')}\n`;
+  assert.throws(() => parseYaml(m), /aliases expand to too many nodes/);
+  // a few aliases to a normal string are fine
+  assert.deepEqual(parseYaml('a: &a hello\nb: *a\nc: [*a, *a]'), { a: 'hello', b: 'hello', c: ['hello', 'hello'] });
+});
+
+test('0.3.0 audit: a YAML alias chain cannot build nesting deeper than MAX_DEPTH', () => {
+  let src = 'a0: &a0 [x]\n';
+  for (let i = 1; i < 2000; i++) src += `a${i}: &a${i} [*a${i - 1}]\n`;
+  assert.throws(() => parseYaml(src), /nesting is too deep/);
+  let ok = 'a0: &a0 [x]\n';
+  for (let i = 1; i < 50; i++) ok += `a${i}: &a${i} [*a${i - 1}]\n`;
+  assert.doesNotThrow(() => parseYaml(ok));
+});
+
+test('0.3.0 audit: operationId is kept only as a string, at most 200 characters', () => {
+  const spec = (/** @type {any} */ id) => ({ openapi: '3.0.0', paths: { '/a': { get: { operationId: id } } } });
+  assert.equal(loadSpec(spec({ a: 1 })).ops[0].operationId, undefined);
+  assert.equal(loadSpec(spec(42)).ops[0].operationId, undefined);
+  assert.equal(loadSpec(spec('y'.repeat(10 * 1024))).ops[0].operationId?.length, 200);
+  assert.equal(loadSpec(spec('listA')).ops[0].operationId, 'listA');
+});
+
+// 0.3.0 recent-CVE audit (logging-probe send): host confusion through a spec base path, terminal escapes from spec paths.
+test('0.3.0 recent-CVE audit: a Swagger basePath never moves logging-probe requests to another host or port', async () => {
+  const { sendProbes, planProbes, specBasePath } = await import('../src/logprobe.mjs');
+  const target = 'https://staging.example.com';
+  for (const bp of ['.attacker.example', ':8443', '@attacker.example', '//evil', '\\evil', '//evil.example:8443/x', 'http://evil.example']) {
+    const doc = { swagger: '2.0', info: { title: 't', version: '1' }, basePath: bp, paths: { '/users': { get: {} } } };
+    const spec = loadSpec(doc);
+    const p = planProbes(spec, { specBase: specBasePath(doc), origin: target });
+    for (const x of p.plan) assert.equal(new URL(x.url).origin, target, `${bp}: ${x.url}`);
+    for (const x of p.notSent) assert.match(x.reason, /leave the target host/, bp);
+    // also when the base comes from loadSpec (library use without specBasePath)
+    for (const x of planProbes(spec, { origin: target }).plan) assert.equal(new URL(x.url).origin, target, bp);
+    const urls = [];
+    await sendProbes({ url: target, spec, specBase: specBasePath(doc), rate: 50, run: 'abcdef12', requestImpl: async (u) => { urls.push(u); return { status: 200, location: '' }; } });
+    for (const u of urls) assert.equal(new URL(u).origin, target, `${bp}: ${u}`);
+  }
+});
+
+test('0.3.0 recent-CVE audit: spec paths cannot put terminal escape sequences on stderr (logging-probe send)', async () => {
+  const { createServer } = await import('node:http');
+  const dir = mkdtempSync(join(tmpdir(), 'ade-esc-'));
+  const doc = { openapi: '3.0.0', info: { title: 't', version: '1' }, paths: { '/red/\u001b[31mRED': { get: {} }, '/link/\u001b]8;;https://evil.example\u0007click\u001b]8;;\u0007': { get: {} } } };
+  writeFileSync(join(dir, 'spec.json'), JSON.stringify(doc));
+  const srv = createServer((q, s) => s.end());
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  try {
+    const url = `http://127.0.0.1:${srv.address().port}`;
+    const p = await new Promise((resolve) => {
+      const c = spawn(process.execPath, [BIN, 'logging-probe', 'send', '--url', url, '--spec', join(dir, 'spec.json'), '--rate', '50', '-o', join(dir, 'run.json')], { cwd: dir });
+      let err = '';
+      c.stderr.on('data', (d) => { err += d; });
+      c.on('close', (status) => resolve({ status, err }));
+    });
+    assert.equal(p.status, 0, p.err);
+    assert.match(p.err, /RED/);
+    assert.ok(!p.err.includes('\u001b') && !p.err.includes('\u0007'), 'raw escape sequence on stderr');
+    const d = run(dir, ['logging-probe', 'send', '--url', url, '--spec', join(dir, 'spec.json'), '--dry-run']);
+    assert.ok(!d.stdout.includes('\u001b') && !d.stderr.includes('\u001b'));
+  } finally { srv.closeAllConnections(); await new Promise((r) => srv.close(r)); }
 });

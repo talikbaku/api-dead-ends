@@ -1,5 +1,5 @@
 // @ts-check
-// Load OpenAPI 3.x / Swagger 2.0 (JSON). Operations with regexes for matching.
+// Load OpenAPI 3.x / Swagger 2.0 (parsed from JSON or YAML, see yaml.mjs). Operations with regexes for matching.
 
 const METHODS = ['get', 'put', 'post', 'delete', 'options', 'head', 'patch', 'trace'];
 
@@ -12,7 +12,7 @@ const METHODS = ['get', 'put', 'post', 'delete', 'options', 'head', 'patch', 'tr
  * @returns {{ title: string, version: string, base: string, ops: Operation[] }}
  */
 export function loadSpec(spec) {
-  if (!spec || typeof spec !== 'object' || !spec.paths) throw new Error('Spec has no "paths" (need OpenAPI 3.x or Swagger 2.0 as JSON; or build one with: api-dead-ends spec from-routes <file>)');
+  if (!spec || typeof spec !== 'object' || !spec.paths) throw new Error('Spec has no "paths" (need OpenAPI 3.x or Swagger 2.0 as JSON or YAML; or build one with: api-dead-ends spec from-routes <file>)');
   const base = basePrefix(spec);
   /** @type {Operation[]} */
   const ops = [];
@@ -29,14 +29,14 @@ export function loadSpec(spec) {
         method: m === 'any' ? 'ANY' : m.toUpperCase(),
         path: p,
         deprecated: !!(op && op.deprecated),
-        operationId: op && op.operationId,
+        operationId: typeof op.operationId === 'string' ? op.operationId.slice(0, 200) : undefined,
         re: buildRegex(base, segs),
         params,
         literals: segs.length - params,
       });
     }
   }
-  return { title: spec.info?.title || 'API', version: spec.info?.version || '', base, ops };
+  return { title: String(spec.info?.title ?? '') || 'API', version: String(spec.info?.version ?? ''), base, ops };
 }
 
 /** @param {string} s */

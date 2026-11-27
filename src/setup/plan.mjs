@@ -30,13 +30,13 @@ const PROM_PRESET = { spring: 'spring', express: 'express', fastapi: 'fastapi', 
 
 /**
  * How to get a route list or a spec straight from the framework (no code parsing).
- * `spec` = produces OpenAPI JSON; `routes` = route list for `spec from-routes`.
+ * `spec` = produces an OpenAPI file (JSON or YAML); `routes` = route list for `spec from-routes`.
  * @type {Record<string, { kind: 'spec'|'routes'|'planned'|'scan', how: string }>}
  */
 export const ROUTE_SOURCES = {
   spring: { kind: 'spec', how: 'springdoc: curl -s localhost:8080/v3/api-docs > openapi.json   (or: curl -s localhost:8080/actuator/mappings > routes.json)' },
   quarkus: { kind: 'spec', how: 'curl -s "localhost:8080/q/openapi?format=json" > openapi.json' },
-  micronaut: { kind: 'spec', how: 'build with micronaut-openapi, then take the generated swagger file (convert YAML to JSON)' },
+  micronaut: { kind: 'spec', how: 'build with micronaut-openapi, then pass the generated swagger file (YAML is read as is)' },
   fastapi: { kind: 'spec', how: 'curl -s localhost:8000/openapi.json > openapi.json' },
   django: { kind: 'routes', how: 'python manage.py show_urls > routes.txt   (django-extensions; with drf-spectacular: python manage.py spectacular --format openapi-json > openapi.json)' },
   flask: { kind: 'routes', how: 'flask routes > routes.txt' },
@@ -129,7 +129,7 @@ export function buildSteps(c) {
       const fromRoutes = `${ade} spec from-routes ${dir}/routes.txt --title ${q(s.name)} -o ${dir}/routes.openapi.json`;
       steps.push({ title: 'Get the list of endpoints', note: fw && fw.kind === 'spec'
         ? how
-        : `${fw ? fw.how.replace(/routes\.(txt|json)/, `${dir}/routes.txt`) : `Export your OpenAPI JSON to ${dir}/openapi.json, or write ${dir}/routes.txt with "METHOD /path" lines`}\n  then: ${fromRoutes}` });
+        : `${fw ? fw.how.replace(/routes\.(txt|json)/, `${dir}/routes.txt`) : `Export your OpenAPI (JSON or YAML) to ${dir}/openapi.json, or write ${dir}/routes.txt with "METHOD /path" lines`}\n  then: ${fromRoutes}` });
       spec = fw && fw.kind === 'spec' ? `${dir}/openapi.json` : `${dir}/routes.openapi.json`;
       }
     }

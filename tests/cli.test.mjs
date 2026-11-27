@@ -88,3 +88,37 @@ test('cli: -o pointing at a directory or a symlink fails with the full path and 
   assert.ok(l.stderr.includes(`${join(dir, 'link.csv')} is a symlink`), l.stderr);
   assert.equal(readFileSync(join(dir, 'victim.txt'), 'utf8'), 'keep');
 });
+
+test('cli: --write-baseline and --duplicates refuse symlinks; "-" goes to stdout or is refused, never a file named -', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ade-'));
+  const runIn = (...args) => spawnSync(process.execPath, [BIN, ...args], { encoding: 'utf8', cwd: dir });
+  writeFileSync(join(dir, 'victim.txt'), 'keep');
+  const usage = join(FX, 'shop.usage.csv'), spec = join(FX, 'shop.openapi.json');
+
+  symlinkSync(join(dir, 'victim.txt'), join(dir, 'base-link.json'));
+  const b = runIn('report', '--usage', usage, '--spec', spec, '--out', 'rep', '--write-baseline', 'base-link.json');
+  assert.equal(b.status, 2);
+  assert.ok(b.stderr.includes(`${join(dir, 'base-link.json')} is a symlink`), b.stderr);
+  assert.equal(readFileSync(join(dir, 'victim.txt'), 'utf8'), 'keep');
+  const bOut = runIn('report', '--usage', usage, '--spec', spec, '--out', 'rep', '--write-baseline', '-');
+  assert.equal(bOut.status, 0, bOut.stderr);
+  assert.ok(Array.isArray(JSON.parse(bOut.stdout).shadow), bOut.stdout.slice(0, 200));
+  const bMix = runIn('report', '--usage', usage, '--spec', spec, '--write-baseline', '-');
+  assert.equal(bMix.status, 2);
+  assert.match(bMix.stderr, /--write-baseline - would mix/);
+
+  const L = (t, m) => `198.51.100.1 - - [10/Nov/2026:10:00:0${t} +0000] "${m} /orders HTTP/1.1" 201 1 "-" "app/1.0"`;
+  writeFileSync(join(dir, 'a.log'), [L(0, 'POST'), L(1, 'POST')].join('\n') + '\n');
+  symlinkSync(join(dir, 'victim.txt'), join(dir, 'dup-link.json'));
+  const d = runIn('convert', 'accesslog', 'a.log', '-o', 'u.csv', '--duplicates', 'dup-link.json');
+  assert.equal(d.status, 2);
+  assert.ok(d.stderr.includes(`${join(dir, 'dup-link.json')} is a symlink`), d.stderr);
+  assert.equal(readFileSync(join(dir, 'victim.txt'), 'utf8'), 'keep');
+  const dOut = runIn('convert', 'accesslog', 'a.log', '-o', 'u.csv', '--duplicates', '-');
+  assert.equal(dOut.status, 0, dOut.stderr);
+  assert.ok(Array.isArray(JSON.parse(dOut.stdout).rows));
+  const dMix = runIn('convert', 'accesslog', 'a.log', '--duplicates', '-');
+  assert.equal(dMix.status, 2);
+  assert.match(dMix.stderr, /--duplicates - would mix/);
+  assert.ok(!existsSync(join(dir, '-')));
+});

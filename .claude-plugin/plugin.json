@@ -1,7 +1,7 @@
 {
   "name": "api-dead-ends",
-  "version": "0.2.1",
-  "description": "Find broken, unused and undocumented API endpoints from traffic you already have (logs, APM, metrics). Read-only, no AI needed for the numbers.",
+  "version": "0.3.0",
+  "description": "Find broken, unused and undocumented API endpoints from traffic you already have (logs, APM, metrics). Reads only, except an opt-in staging logging probe; no AI needed for the numbers.",
   "author": { "name": "talikbaku" },
   "license": "MIT",
   "keywords": ["api", "openapi", "observability", "dead-code", "logs"],

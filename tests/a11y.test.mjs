@@ -31,7 +31,7 @@ test('report.html: tabs, panel, window selector and focus style are in place', (
 
 test('report.html: 5xx over/below threshold is said in words, sparklines get a short summary', () => {
   const html = toHtml(classify([], { title: 't', version: '1', ops: [] }), {});
-  for (const s of ['"over":"over threshold"', '"below":"below threshold"', 'S.over : S.below', "': total '", "', peak '", "', last '"]) assert.ok(html.includes(s), s);
+  for (const s of ['"over":"over threshold"', '"below":"below threshold"', 'S.over : S.below', '"total":"total"', '"peak":"peak"', '"last":"last"', "': ' + S.total + ' '", "', ' + S.peak + ' '", "', ' + S.last + ' '"]) assert.ok(html.includes(s), s);
   assert.equal(html.includes("arr.map((v, i) => (D.days[i]"), false, 'the label no longer lists every day');
 });
 

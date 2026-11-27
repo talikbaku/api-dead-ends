@@ -445,3 +445,15 @@ test('dist: one place for the npx command and the pinned MCP package; version ma
   assert.equal(utcpManual().manual_version, VERSION, 'UTCP manual_version');
   assert.match(read('README.md'), new RegExp(`\\*\\*Status:\\*\\* v${VERSION.replace(/\./g, '\\.')}\\.`), 'README status line');
 });
+
+test('server.json (MCP Registry): name = mcpName, versions = package.json, npm stdio package runs `mcp`', () => {
+  const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+  const server = JSON.parse(readFileSync(new URL('../server.json', import.meta.url), 'utf8'));
+  assert.equal(server.name, pkg.mcpName, 'server.json name = package.json mcpName');
+  assert.equal(server.version, pkg.version, 'server.json version');
+  assert.ok(server.description.length <= 100, 'registry limits description to 100 characters');
+  const [p] = server.packages;
+  assert.equal(p.version, pkg.version, 'server.json packages[0].version');
+  assert.deepEqual([p.registryType, p.identifier, p.transport.type], ['npm', pkg.name, 'stdio']);
+  assert.deepEqual(p.packageArguments, [{ type: 'positional', value: 'mcp' }]);
+});

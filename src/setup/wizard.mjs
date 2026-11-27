@@ -86,11 +86,10 @@ export async function runInit(io) {
     const logName = src.id === 'none' || src.id === 'accesslog' || src.id === 'csv' ? s.name
       : await ask(`  Service name as it appears in ${src.label} [${chosen.length === 1 && f['log-name'] ? f['log-name'] : s.name}]: `, chosen.length === 1 && f['log-name'] ? f['log-name'] : s.name);
     const defSpec = (chosen.length === 1 && f.spec) || s.specs[0] || '';
-    const spec = (await ask(`  OpenAPI/Swagger JSON file${defSpec ? ` [${defSpec}]` : ' (Enter to skip)'}: `, defSpec)).trim();
+    const spec = (await ask(`  OpenAPI/Swagger file, JSON or YAML${defSpec ? ` [${defSpec}]` : ' (Enter to skip)'}: `, defSpec)).trim();
     let routes = '';
     const defRoutes = (chosen.length === 1 && f.routes) || s.routeFiles?.[0] || '';
     if (!spec) routes = (await ask(`  Route list file from the framework (routes.txt/json)${defRoutes ? ` [${defRoutes}]` : ', Enter to skip'}: `, defRoutes)).trim();
-    if (spec && /\.ya?ml$/i.test(spec)) say('  ! YAML specs are not read yet — convert to JSON first (for example: npx @redocly/cli bundle spec.yaml --ext json -o openapi.json).');
     services.push({ name: safeName(s.name), dir: s.dir, language: s.language, frameworks: s.frameworks, logName, spec: spec || null, routes: routes || null, ...(src.id === 'prometheus' ? { preset: f.preset || promPreset(s) } : {}) });
   }
 

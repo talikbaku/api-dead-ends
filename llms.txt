@@ -5,21 +5,22 @@
 ## Install
 - CLI: `npx api-dead-ends init` (Node.js >= 20, 22+ recommended, zero dependencies)
 - Claude Code: `/plugin marketplace add talikbaku/api-dead-ends` then `/plugin install api-dead-ends@api-dead-ends-marketplace`
-- MCP client: `{"mcpServers":{"ade":{"command":"npx","args":["-y","api-dead-ends@0.2.1","mcp"]}}}`
-- UTCP client: manual from `npx -y api-dead-ends@0.2.1 utcp` (cli call template)
+- MCP client: `{"mcpServers":{"ade":{"command":"npx","args":["-y","api-dead-ends@0.3.0","mcp"]}}}`
+- UTCP client: manual from `npx -y api-dead-ends@0.3.0 utcp` (cli call template)
 
 ## Main commands
 - `init` — scan repo, ask questions, write `.api-dead-ends/NEXT-STEPS.md` (`--yes`, `--json`, `--dry-run`, `--source`, `--service`, `--spec`, `--routes`, `--logs`, `--days`)
 - `query <source>` — print the query for elasticsearch, datadog, datadog-apm, prometheus (--preset), loki, victorialogs, appinsights, cloudwatch, athena, bigquery, newrelic, dynatrace, splunk
 - `convert <source> <file>` — saved response → usage table (method,path,calls,first_seen,last_seen,status)
 - `spec from-routes <routes.txt|json>` — OpenAPI from rails/flask/django/spring/gin/echo/laravel/express route lists
-- `report --usage usage.csv --spec openapi.json --days N --out dir/` — report.md + report.json; `--json` prints JSON; `--baseline` + `--fail-on new-shadow,deprecated-growth` for CI
+- `report --usage usage.csv --spec openapi.json --days N --out dir/` (`--spec` accepts OpenAPI JSON or YAML) — report.md + report.json; `--json` prints JSON; `--baseline` + `--fail-on new-shadow,deprecated-growth` for CI
 - `report` also writes report.html; with `convert --daily` it shows 30/7/3/1-day windows and recent 5xx spikes
 - `fetch kibana --url <Discover URL> --service S` / `fetch victorialogs --url http://host:9428 [--service S]` — export straight from the source (browser login / read-only LogsQL); `--hourly`, `--errors errors.json` (error texts from the same traces)
 - incident: `report --include-today --errors errors.json --tz Zone` on an hourly table → `changes` in report.json: 5xx up today with the first hour, totals and peak req/s vs the same hours before, calls and 5xx up together, appeared/vanished endpoints
 - `probe <url> [--spec F]` — browser visit (Playwright): duplicate/broken/slow API calls per page; human-run only
 - `convert accesslog … --duplicates dup.json` — repeated POST/PATCH from one client; `report --duplicates dup.json`
 - `coverage --usage app.csv --reference ingress.csv` — endpoints not logged by the app; `logging-check` — "do not log" settings in code
+- `logging-probe send --url <STAGING> --spec F -o run.json` / `logging-probe verify --run run.json --logs F` — active logging check: marked requests to staging, then finds the markers in your log export; staging only, CLI only (not an MCP tool)
 - `spec from-next <dir>` — Next.js routes
 - `mcp` — stdio MCP server; read tools: detect_project, setup_plan, build_query, spec_from_routes, analyze_usage; write tools: init, write_report (only config + .api-dead-ends/)
 - `utcp` — prints a UTCP manual with the read tools

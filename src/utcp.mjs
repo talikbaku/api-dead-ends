@@ -30,7 +30,7 @@ export function utcpManual() {
       tool('build_query', 'Print the aggregation query for a source; the human runs it.', { source: s('Source id'), service: s('Service name in the source'), days: s('Window in days') },
         `${cmd} query ${arg('source')} --service ${arg('service')} --days ${arg('days')}`),
       tool('spec_from_routes', 'Minimal OpenAPI JSON from a framework route list file.', { file: s('routes.txt or routes.json') }, `${cmd} spec from-routes ${arg('file')}`),
-      tool('analyze_usage', 'Report as JSON: totals, server errors, shadow and not-seen endpoints.', { usage: s('Usage table CSV/JSON'), spec: s('OpenAPI JSON') },
+      tool('analyze_usage', 'Report as JSON: totals, server errors, shadow and not-seen endpoints.', { usage: s('Usage table CSV/JSON'), spec: s('OpenAPI JSON or YAML') },
         `${cmd} report --usage ${arg('usage')} --spec ${arg('spec')} --json`),
     ],
   };

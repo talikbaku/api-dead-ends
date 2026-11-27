@@ -12,6 +12,7 @@ import { detectProject } from './setup/detect.mjs';
 import { SOURCES, ROUTE_SOURCES, recommendSource, promPreset, buildSteps, safeName } from './setup/plan.mjs';
 import { parseRoutes, routesToOpenApi } from './routes.mjs';
 import { loadSpec, literalSegments } from './spec.mjs';
+import { parseSpecText } from './yaml.mjs';
 import { isIdSegment } from './template.mjs';
 import { parseUsage, addRow } from './usage.mjs';
 import { classify } from './classify.mjs';
@@ -66,7 +67,7 @@ const TOOLS = [
     description: 'Same input as analyze_usage; writes report.md, report.json and report.html into a folder under .api-dead-ends/ (git-ignored by init). Returns the paths and the summary.',
     inputSchema: { type: 'object', required: ['out'], properties: {
       out: str('Folder under .api-dead-ends/, e.g. .api-dead-ends/orders/report'),
-      spec: str('OpenAPI/Swagger JSON path'), routes: str('Or a framework route list'), usage: str('Usage table path'),
+      spec: str('OpenAPI/Swagger path (JSON or YAML)'), routes: str('Or a framework route list'), usage: str('Usage table path'),
       response: str('Or a saved source response'), source: { type: 'string', enum: Object.keys(ADAPTERS) }, days: { type: 'number' },
     } },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
@@ -110,7 +111,7 @@ const TOOLS = [
     title: 'Analyze a usage table',
     description: 'Compare a usage table (CSV/JSON from `convert` or `fetch`) or a saved source response with the spec or a route list. Returns totals, server errors (with share), 5xx below threshold, client errors, undocumented and possibly-undocumented endpoints, not-seen endpoints.',
     inputSchema: { type: 'object', properties: {
-      spec: str('OpenAPI/Swagger JSON path'), routes: str('Alternatively: a framework route list (routes.txt/json)'), usage: str('Usage table path (method,path,calls,…)'),
+      spec: str('OpenAPI/Swagger path (JSON or YAML)'), routes: str('Alternatively: a framework route list (routes.txt/json)'), usage: str('Usage table path (method,path,calls,…)'),
       response: str('Alternatively: a saved source response to convert first'), source: { type: 'string', enum: Object.keys(ADAPTERS) },
       days: { type: 'number' }, top: { type: 'number', description: 'Max items per list (default 20)' },
     } },
@@ -151,7 +152,7 @@ async function readInside(cwd, p) {
 
 /** Spec (or route list) + usage (or saved response), all confined to cwd. @param {string} cwd @param {any} a */
 async function loadInputs(cwd, a) {
-  if (!a.spec && !a.routes) throw new Error('pass spec (OpenAPI JSON) or routes (route list file)');
+  if (!a.spec && !a.routes) throw new Error('pass spec (OpenAPI JSON or YAML) or routes (route list file)');
   const spec = loadSpec(a.spec ? parseJson(await readInside(cwd, a.spec)) : routesToOpenApi(parseRoutes(await readInside(cwd, a.routes))));
   const keep = literalSegments(spec, isIdSegment);
   let dailyRows;
@@ -253,9 +254,9 @@ async function callTool(name, a = {}) {
   throw new Error(`unknown tool ${name}`);
 }
 
-/** JSON.parse without echoing file content back. @param {string} t */
+/** OpenAPI JSON or YAML, without echoing file content back (errors carry a line number only). @param {string} t */
 function parseJson(t) {
-  try { return JSON.parse(t); } catch { throw new Error('spec is not valid JSON'); }
+  return parseSpecText(t);
 }
 
 /** Error text for the agent, without file contents (CSV headers, JSON snippets). @param {unknown} e */

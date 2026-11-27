@@ -1,7 +1,12 @@
 # Changelog
 
-## 0.2.1 — 2026-11-27
+## 0.3.0 — 2026-11-27
 
+- YAML OpenAPI/Swagger specs are read everywhere a spec is read (CLI, MCP, `init`), with a built-in zero-dependency YAML reader: anchors and merges with an expansion cap, `__proto__` refused, errors give the line but never quote the file. Supports explicit `? key` entries (PyYAML output), block/flow scalars, core tags (`!!int`, `!!bool`…; a value that does not fit its tag is an error); aliases are capped by nodes, characters and depth.
+- `logging-probe send` / `verify`: the active logging check for staging. One marked GET/HEAD per spec operation (marker in `X-ADE-Probe`, User-Agent and `?ade_probe=`), rate-limited, no redirects followed, every URL kept on the `--url` host; `--dry-run`, `--header` (values from env, never stored), `--base-path`. Hosts that do not look like staging need `--target-is-staging` (or a confirmation in a terminal); writes need `--include-writes --i-understand-this-is-staging` and a staging-looking host. Then search any app-log export for the markers → logged / NOT logged / answered by gateway/auth / not reached / unknown, with the file each marker was found in. `logging-check send|verify` now points to `logging-probe`; `logging-check` fails on a missing folder.
+- Security: reviewed with Anthropic's `/security-review` (no findings) and an audit against vulnerabilities published Aug 27 – Nov 27, 2026; fixed YAML alias amplification, a spec `basePath` moving probe requests to another host, terminal escapes from spec paths; `logging-probe send` uses `node:http` (no response decompression, see CVE-2026-111497) and warns on unpatched Node; `--write-baseline` and `--duplicates` use the symlink-safe writer; `operationId` limited to a 200-character string; CI actions pinned by SHA.
+- `server.json` for the official MCP Registry (not published yet; see docs/MCP.md).
+- README headings without emoji (screen readers read them aloud); `funding` removed from package.json (GitHub Sponsors is not set up).
 - `report.html`: the 5xx share says "over threshold" / "below threshold" next to the number (not colour only); short sparkline labels (total, peak day, last N days); font sizes in rem; Windows High Contrast (`forced-colors`) styles. Checked with axe-core (0 violations), a keyboard run and Chromium forced-colours emulation.
 - `report.md` has per-day tables (calls and 5xx) for endpoints with 5xx or spikes; `report.json` gets `perDay` for every endpoint when the data has days.
 - `-o -` writes to stdout for every command (no file named `-`); `spec from-*` and `convert -o` now write through the same symlink-safe writer as the rest; clearer errors when the target is a directory or a symlink.

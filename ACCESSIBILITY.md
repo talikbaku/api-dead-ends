@@ -31,12 +31,12 @@ Each symbol is decoration next to a word; nothing is said by the symbol alone.
 | `Δ` | `report` summary, with hourly data | "Today vs the same hours before: requests …, 5xx …" |
 | `▲` | `report` summary | "Recent spikes: N" |
 | `✖` | `report` summary | "Server errors: N" |
-| `!` | `report` summary; `init` warnings | "Undocumented (called, not in spec): N"; a warning sentence (for example "YAML specs are not read yet") |
+| `!` | `report` summary; `init` warnings | "Undocumented (called, not in spec): N"; a warning sentence (for example `! <source> not found in <services> manifests — continuing as asked`) |
 | `○` | `report` summary | "Not called in N days: N (a hint, not a verdict)" |
 | `↓` | `report` summary | "Deprecated but still called: N" |
 | `×` | `report` summary and reports | a count and a status class, as in "12 × 5xx" |
 | `…` | `report` summary | "N more in report.md" |
-| `→` | after a file is written | the file path, as in "→ report/report.md" |
+| `→` | after a file is written; `logging-probe send` progress lines | the file path, as in "→ report/report.md"; in `logging-probe send` the status code or error, as in "→ 200 (15 ms)" or "→ ECONNREFUSED" |
 | `✓` | `init` source list | "verified" |
 | `←` | `init` source list | "suggested" |
 | `⚠` | `report.md` (not the terminal), Undocumented table | "debug/admin path answering 2xx — check auth" |

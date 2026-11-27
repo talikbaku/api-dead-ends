@@ -1,7 +1,7 @@
 {
   "name": "api-dead-ends",
-  "version": "0.2.1",
-  "description": "Find API endpoints that fail, are never called, or are missing from your OpenAPI spec — from logs and metrics you already have. Shadow & zombie API inventory. Read-only CLI, MCP server, UTCP manual, Claude Code plugin.",
+  "version": "0.3.0",
+  "description": "Find API endpoints that fail, are never called, or are missing from your OpenAPI spec — from logs and metrics you already have. Shadow & zombie API inventory. CLI that only reads (except an opt-in staging logging probe), MCP server, UTCP manual, Claude Code plugin.",
   "keywords": [
     "openapi",
     "swagger",
@@ -38,10 +38,6 @@
   },
   "license": "MIT",
   "author": "Talat Gurbanbayov (https://github.com/talikbaku)",
-  "funding": {
-    "type": "github",
-    "url": "https://github.com/sponsors/talikbaku"
-  },
   "type": "module",
   "bin": {
     "api-dead-ends": "bin/api-dead-ends.mjs"
