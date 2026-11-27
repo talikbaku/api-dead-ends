@@ -229,7 +229,7 @@ if (cmd0 === 'probe') {
   try {
     const p = await probe({ url: pos[1], apiHosts: v['api-host'] ? String(v['api-host']).split(',') : [], pages: v.pages ? Number(v.pages) : undefined, login: v.login, headed: v.headed, slowMs: v['slow-ms'] ? Number(v['slow-ms']) : undefined, spec: pspec, log: (s) => console.error(s), waitForEnter });
     const md = probeToMarkdown(p);
-    if (v.out) {
+    if (!toStdout(v.out)) {
       await mkdir(v.out, { recursive: true });
       await writeSafe(join(v.out, 'probe.json'), JSON.stringify(p, null, 2) + '\n');
       await writeSafe(join(v.out, 'probe.md'), md);
@@ -252,7 +252,7 @@ if (cmd0 === 'coverage') {
   const c = coverage(parseUsage(await readOr2(String(v.usage)), { keep: ckeep }), parseUsage(await readOr2(String(v.reference)), { keep: ckeep }), cspec);
   const md = coverageToMarkdown(c);
   if (v.json) process.stdout.write(JSON.stringify(c, null, 2) + '\n');
-  else if (v.out) {
+  else if (!toStdout(v.out)) {
     await mkdir(v.out, { recursive: true });
     await writeSafe(join(v.out, 'coverage.md'), md);
     await writeSafe(join(v.out, 'coverage.json'), JSON.stringify(c, null, 2) + '\n');
@@ -281,7 +281,8 @@ if (cmd0 === 'spec') {
   const routes = pos[1] === 'from-next' ? await (await import('../src/routes.mjs')).scanNext(pos[2]) : parseRoutes(await readOr2(pos[2]));
   if (!routes.length) { console.error(pos[1] === 'from-next' ? 'No Next.js routes found (looked for app/**/route.* and pages/api/** under that folder).' : 'No routes recognised. Expected lines like "GET /users/:id" or a framework route dump.'); process.exit(2); }
   const doc = JSON.stringify(routesToOpenApi(routes, { title: v.title }), null, 2) + '\n';
-  if (v.out) { await mkdir(join(v.out, '..'), { recursive: true }); await writeFile(v.out, doc); console.error(`${routes.length} routes → ${v.out}`); } else process.stdout.write(doc);
+  if (!toStdout(v.out)) await mkdir(join(v.out, '..'), { recursive: true });
+  if (await emit(v.out, doc)) console.error(`${routes.length} routes → ${v.out}`);
   await exitAfterFlush(0);
 }
 
@@ -327,7 +328,7 @@ try {
       for (const f of pos.slice(2)) for (const r of src.parse(await readFile(f, 'utf8'), fields)) addRow(acc, r, { keep, daily: v.daily, hourly: v.hourly });
     }
     const csv = toCsv([...acc.values()].sort((a, b) => b.calls - a.calls));
-    if (v.out) { await writeFile(v.out, csv); console.error(`${acc.size} method+path pairs → ${v.out}`); } else process.stdout.write(csv);
+    if (await emit(v.out, csv)) console.error(`${acc.size} method+path pairs → ${v.out}`);
     if (!spec && pos[1] !== 'csv') console.error('Note: no --spec given. Pass the same --spec as for `report`, so literal path segments from your spec (v1beta1, oauth2…) are not folded into {id}.');
     if (acc.size && [...acc.values()].every((r) => !r.first_seen)) console.error('Note: the response has no first/last seen dates. Pass --days N to `report` so it knows the window length.');
   } else if (cmd === 'fetch' && !['kibana', 'victorialogs', 'elasticsearch'].includes(String(pos[1]))) {
@@ -367,7 +368,7 @@ try {
     const acc = new Map();
     for (const r of rows) addRow(acc, r, { keep, daily: v.daily, hourly: v.hourly });
     const csv = toCsv([...acc.values()].sort((a, b) => b.calls - a.calls));
-    if (v.out) await writeSafe(String(v.out), csv); else process.stdout.write(csv);
+    await emit(v.out, csv);
     if (skipped.length) console.error(`WARNING: ${skipped.length} time windows skipped — usage table is incomplete.`);
   } else if (cmd === 'report') {
     if (!v.usage || !spec) fail('Usage: api-dead-ends report --usage <usage.csv> --spec <openapi.json>\n  usage.csv comes from `convert` or `fetch` (traffic data). No spec? `api-dead-ends spec from-routes <routes.txt>`. Not sure where to start? `api-dead-ends init`.');
@@ -400,8 +401,8 @@ try {
       probe: v.probe ? JSON.parse(await readFile(v.probe, 'utf8')) : null,
       duplicates: v.duplicates ? JSON.parse(await readFile(v.duplicates, 'utf8')) : null };
     const md = toMarkdown(r, extra);
-    if (v.json && !v.out) process.stdout.write(toJson(r, extra));
-    else if (v.out) {
+    if (v.json && toStdout(v.out)) process.stdout.write(toJson(r, extra));
+    else if (!toStdout(v.out)) {
       await mkdir(v.out, { recursive: true });
       await writeSafe(join(v.out, 'report.md'), md);
       await writeSafe(join(v.out, 'report.json'), toJson(r, extra));
@@ -444,11 +445,22 @@ async function writeFetched(rows, errors) {
   const acc = new Map();
   for (const r of rows) addRow(acc, r, { keep, daily: v.daily, hourly: v.hourly });
   const csv = toCsv([...acc.values()].sort((a, b) => b.calls - a.calls));
-  if (v.out) { await writeSafe(String(v.out), csv); console.error(`${acc.size} rows → ${v.out}`); } else process.stdout.write(csv);
+  if (await emit(v.out, csv)) console.error(`${acc.size} rows → ${v.out}`);
   if (v.errors && errors) {
     try { await writeSafe(String(v.errors), JSON.stringify(errors, null, 2) + '\n'); console.error(`Error texts for ${errors.endpoints.length} endpoints → ${v.errors}`); }
     catch (e) { console.error(`Could not write ${v.errors}: ${String(/** @type {Error} */ (e).message).split('\n')[0]}`); process.exitCode = 1; }
   } else if (v.errors) console.error('No error texts collected (see the messages above).');
+}
+
+/** `-o -` or no -o: the result goes to stdout. @param {unknown} o */
+function toStdout(o) { return !o || o === '-'; }
+
+/** Write data to the -o file (via writeSafe: no symlinks, no directories) or to stdout for `-o -` / no -o.
+ * @param {unknown} file @param {string} data @returns {Promise<boolean>} true when a file was written */
+async function emit(file, data) {
+  if (toStdout(file)) { process.stdout.write(data); return false; }
+  await writeSafe(String(file), data);
+  return true;
 }
 
 /** @param {string} msg @returns {never} */

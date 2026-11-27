@@ -1,11 +1,12 @@
 # api-dead-ends
 
-[![test](https://github.com/talikbaku/api-dead-ends/actions/workflows/test.yml/badge.svg)](https://github.com/talikbaku/api-dead-ends/actions/workflows/test.yml)
-[![npm](https://img.shields.io/npm/v/api-dead-ends)](https://www.npmjs.com/package/api-dead-ends)
+[![Tests status](https://github.com/talikbaku/api-dead-ends/actions/workflows/test.yml/badge.svg)](https://github.com/talikbaku/api-dead-ends/actions/workflows/test.yml)
+[![npm version](https://img.shields.io/npm/v/api-dead-ends)](https://www.npmjs.com/package/api-dead-ends)
 [![MCP server](https://img.shields.io/badge/MCP-server-6E56CF)](#-ai-agents-mcp-utcp)
 [![Claude Code plugin](https://img.shields.io/badge/Claude%20Code-plugin-D97757)](#-ai-agents-mcp-utcp)
 [![UTCP](https://img.shields.io/badge/UTCP-manual-2E7D32)](#-ai-agents-mcp-utcp)
-![license](https://img.shields.io/badge/license-MIT-blue)
+![Node.js >= 20](https://img.shields.io/badge/node-%3E%3D20-339933)
+![License: MIT](https://img.shields.io/badge/license-MIT-blue)
 
 **Find API endpoints that fail, are never called, or are missing from your OpenAPI spec — using the logs and metrics you already have.** CLI, MCP server, UTCP manual and Claude Code plugin.
 

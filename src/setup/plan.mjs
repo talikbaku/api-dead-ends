@@ -159,7 +159,7 @@ export function buildSteps(c) {
           ? '- Next.js / Vercel: runtime logs are kept for a short time (about 1 hour on Hobby, 1 day on Pro). If you export request logs (method, path, status) to CSV, run `convert csv <file> --map …`. With a log drain (Pro) or OpenTelemetry (`@vercel/otel`) to Datadog, Grafana or Elastic, pick that source and re-run init.'
           : '- Turn on access logs in your web server / ingress (nginx, Apache, ALB) and use the `accesslog` source.',
         '- If anything already collects traces or metrics (Datadog, Prometheus, OpenTelemetry, New Relic…), pick that source and re-run init.',
-        '- Planned, not available yet: a tiny in-repo recorder and `probe <url>` (checks a site from the browser).',
+        '- No logs? `probe <url>` checks a site from the browser (needs Playwright). Planned: a tiny in-repo recorder.',
       ].join('\n') });
       return { service: s.name, steps };
     } else {

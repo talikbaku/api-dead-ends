@@ -46,6 +46,8 @@ export function computeWindows(rows, spec, opt = {}) {
     s.calls[i] += r.calls;
     s.e5[i] += sumStatus(r.status, (c) => c >= 500);
   }
+  // The same numbers on the whole-period result, so report.md and report.json carry them too (text, not only sparklines).
+  /** @type {any} */ (all).perDay = { days, endpoints: Object.fromEntries(Object.entries(series).map(([k, s]) => [k, { calls: s.calls, errors5xx: s.e5 }])) };
   // Recent spikes: over the threshold in a short window AND at least 3× the share of the days before it.
   // (Comparing with the days before — not with the whole period — keeps a big incident from hiding itself.)
   const spikes = [];

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync, readFileSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync, existsSync, mkdirSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -53,4 +53,38 @@ test('cli: bad spec → exit 2 with message', () => {
   const r = run('report', '--usage', join(FX, 'shop.usage.csv'), '--spec', join(dir, 'bad.json'));
   assert.equal(r.status, 2);
   assert.match(r.stderr, /paths/);
+});
+
+test('cli: -o - writes to stdout and never creates a file named "-"', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ade-'));
+  const runIn = (...args) => spawnSync(process.execPath, [BIN, ...args], { encoding: 'utf8', cwd: dir });
+  const resp = { aggregations: { ep: { buckets: [{ key: { method: 'GET', path: '/v1/users/7' }, doc_count: 5, status: { buckets: [{ key: 200, doc_count: 5 }] } }] } } };
+  writeFileSync(join(dir, 'es.json'), JSON.stringify(resp));
+  writeFileSync(join(dir, 'routes.txt'), 'GET /v1/users/:id\n');
+  const c = runIn('convert', 'elasticsearch', 'es.json', '-o', '-');
+  assert.equal(c.status, 0, c.stderr);
+  assert.match(c.stdout, /GET,\/v1\/users\/\{id\},5/);
+  const s = runIn('spec', 'from-routes', 'routes.txt', '-o', '-');
+  assert.equal(s.status, 0, s.stderr);
+  assert.equal(JSON.parse(s.stdout).openapi.slice(0, 1), '3');
+  const r = runIn('report', '--usage', join(FX, 'shop.usage.csv'), '--spec', join(FX, 'shop.openapi.json'), '-o', '-');
+  assert.equal(r.status, 0, r.stderr);
+  assert.ok(r.stdout.length > 100);
+  assert.ok(!existsSync(join(dir, '-')));
+});
+
+test('cli: -o pointing at a directory or a symlink fails with the full path and the reason', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ade-'));
+  const resp = { aggregations: { ep: { buckets: [{ key: { method: 'GET', path: '/a' }, doc_count: 1, status: { buckets: [{ key: 200, doc_count: 1 }] } }] } } };
+  writeFileSync(join(dir, 'es.json'), JSON.stringify(resp));
+  mkdirSync(join(dir, 'out'));
+  const d = run('convert', 'elasticsearch', join(dir, 'es.json'), '-o', join(dir, 'out'));
+  assert.equal(d.status, 2);
+  assert.ok(d.stderr.includes(`${join(dir, 'out')} is a directory`), d.stderr);
+  writeFileSync(join(dir, 'victim.txt'), 'keep');
+  symlinkSync(join(dir, 'victim.txt'), join(dir, 'link.csv'));
+  const l = run('convert', 'elasticsearch', join(dir, 'es.json'), '-o', join(dir, 'link.csv'));
+  assert.equal(l.status, 2);
+  assert.ok(l.stderr.includes(`${join(dir, 'link.csv')} is a symlink`), l.stderr);
+  assert.equal(readFileSync(join(dir, 'victim.txt'), 'utf8'), 'keep');
 });

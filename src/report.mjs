@@ -116,6 +116,21 @@ export function toMarkdown(r, opt = {}) {
     `Rule: 5xx ≥ ${+(th.errorShare * 100).toFixed(3)}% of calls **and** ≥ ${th.errorMin} responses (change with \`--error-share\`, \`--error-min\`).`);
   if (r.errorsBelow.length) sec('Other endpoints with 5xx (below the threshold)', ['Method', 'Path', 'Calls', '5xx', 'Share'],
     r.errorsBelow.slice(0, TOP).map((e) => [e.method, code(e.path), n(e.calls), n(e.errors5xx), pct(e.errors5xx, e.calls)]));
+  // Per-day numbers (the text behind the HTML sparklines) for endpoints with 5xx and recent spikes.
+  const pd = /** @type {any} */ (r).perDay;
+  if (pd?.days?.length) {
+    const keys = [...new Set([...sp, ...r.serverErrors, ...r.errorsBelow].map((e) => `${e.method} ${e.path}`))].filter((k) => pd.endpoints[k]);
+    if (keys.length) {
+      const PD = Math.min(TOP, 20);
+      L.push('## Per day: endpoints with 5xx', '', `Calls and 5xx for each day (UTC), ${keys.length > PD ? `the first ${PD} of ${keys.length} endpoints` : 'for every endpoint above'}. All endpoints: \`perDay\` in report.json.`, '');
+      for (const k of keys.slice(0, PD)) {
+        const i = k.indexOf(' '), s = pd.endpoints[k];
+        L.push(`### ${txt(k.slice(0, i))} ${code(k.slice(i + 1))}`, '', '| Date | Calls | 5xx |', '|---|---:|---:|');
+        pd.days.forEach((/** @type {string} */ d, /** @type {number} */ j) => L.push(`| ${txt(d)} | ${n(Number(s.calls[j]) || 0)} | ${n(Number(s.errors5xx[j]) || 0)} |`));
+        L.push('');
+      }
+    }
+  }
   if (r.clientErrors.length) sec('Client errors (4xx ≥ 10%, without 401/404)', ['Method', 'Path', 'Calls', '4xx', 'Share', 'Statuses'],
     r.clientErrors.map((e) => [e.method, code(e.path), n(e.calls), n(e.errors4xx), pct(e.errors4xx, e.calls), st(e.status)]));
   const why = (/** @type {any} */ s) => (s.kind === 'method_not_in_spec' ? 'path exists, method does not' : 'path not in spec');

@@ -89,6 +89,31 @@ test('init interactive via pipe: answers by line, Enter = default; refuses to ov
   assert.match(again.stderr, /already exists/);
 });
 
+test('init: --source missing from the chosen services\' manifests is used, with a warning', () => {
+  const dir = makeRepo(); // payments has Prometheus in its manifest
+  const warn = run(dir, ['init', '--yes', '--json', '--dry-run', '--service', 'payments', '--source', 'datadog-apm']);
+  assert.equal(warn.status, 0, warn.stderr);
+  assert.equal(JSON.parse(warn.stdout).config.source.type, 'datadog-apm');
+  assert.ok(warn.stderr.includes('  ! datadog-apm not found in payments manifests — continuing as asked'), warn.stderr);
+  const ok = run(dir, ['init', '--yes', '--json', '--dry-run', '--service', 'payments', '--source', 'prometheus']);
+  assert.equal(ok.status, 0, ok.stderr);
+  assert.doesNotMatch(ok.stderr, /not found in .* manifests/);
+  const none = run(dir, ['init', '--yes', '--json', '--dry-run', '--service', 'payments', '--source', 'none']);
+  assert.doesNotMatch(none.stderr, /not found in .* manifests/);
+});
+
+test('init in an empty folder: NEXT-STEPS points to probe as available, the recorder as planned', async () => {
+  const { mkdtempSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const dir = mkdtempSync(join(tmpdir(), 'ade-empty-'));
+  const r = run(dir, ['init', '--yes']);
+  assert.equal(r.status, 0, r.stderr + r.stdout);
+  const next = readFileSync(join(dir, '.api-dead-ends/NEXT-STEPS.md'), 'utf8');
+  assert.match(next, /`probe <url>` checks a site from the browser \(needs Playwright\)/);
+  assert.match(next, /Planned: a tiny in-repo recorder/);
+  for (const line of next.split('\n').filter((x) => /probe/.test(x))) assert.doesNotMatch(line, /not available/);
+});
+
 test('cli: help exits 0, init --help prints help and writes nothing, unknown flag is a clean error', () => {
   const dir = makeRepo();
   assert.equal(run(dir, ['--help']).status, 0);
@@ -409,6 +434,14 @@ test('dist: one place for the npx command and the pinned MCP package; version ma
   assert.equal(VERSION, pkg.version);
   if (ON_NPM) { assert.equal(NPX, 'npx api-dead-ends'); assert.equal(MCP_PKG, `api-dead-ends@${pkg.version}`); }
   else { assert.equal(NPX, 'npx github:talikbaku/api-dead-ends'); assert.equal(MCP_PKG, `github:talikbaku/api-dead-ends#v${pkg.version}`); }
-  const docs = ['README.md', 'llms.txt', 'docs/MCP.md'].map((f) => readFileSync(new URL('../' + f, import.meta.url), 'utf8')).join('\n');
-  assert.equal(docs.includes(MCP_PKG), true);
+  const read = (/** @type {string} */ f) => readFileSync(new URL('../' + f, import.meta.url), 'utf8');
+  for (const f of ['README.md', 'llms.txt', 'docs/MCP.md', 'docs/SECURITY.md']) {
+    assert.equal(read(f).includes(MCP_PKG), true, `${f} pins ${MCP_PKG}`);
+    const stale = [...read(f).matchAll(/api-dead-ends@(\d+\.\d+\.\d+)/g)].map((m) => m[1]).filter((v) => v !== VERSION);
+    assert.deepEqual(stale, [], `${f} has no other pinned version`);
+  }
+  assert.equal(JSON.parse(read('.claude-plugin/plugin.json')).version, VERSION, 'plugin.json version');
+  const { utcpManual } = await import('../src/utcp.mjs');
+  assert.equal(utcpManual().manual_version, VERSION, 'UTCP manual_version');
+  assert.match(read('README.md'), new RegExp(`\\*\\*Status:\\*\\* v${VERSION.replace(/\./g, '\\.')}\\.`), 'README status line');
 });

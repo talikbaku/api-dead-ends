@@ -42,6 +42,12 @@ export async function runInit(io) {
   const own = { ...det, observability: [...new Set(one.flatMap((s) => s.observability))] };
   const rec = f.source || (own.observability.length ? recommendSource(own) : one.length === det.services.length && det.observability.length ? recommendSource(det) : 'none');
   if (!SOURCES.find((s) => s.id === rec)) throw new UsageError(`Unknown --source "${rec}". Use: ${SOURCES.map((s) => s.id).join(', ')}`);
+  // --source wins, but say so when the services' own manifests point elsewhere. Only sources detect() can see
+  // in manifests are checked: file-based ones (csv, accesslog) and cloudwatch/splunk/dynatrace never show up there.
+  const hint = /** @type {Record<string, string>} */ ({ 'datadog-apm': 'datadog', datadog: 'datadog', elasticsearch: 'elasticsearch', prometheus: 'prometheus', victorialogs: 'victorialogs', loki: 'loki', appinsights: 'appinsights', newrelic: 'newrelic' })[f.source];
+  if (f.source && f.source !== 'none' && hint && own.observability.length && !own.observability.includes(hint)) {
+    say(`  ! ${f.source} not found in ${one.map((s) => s.name).join(', ')} manifests — continuing as asked`);
+  }
   if (!quiet) {
     say('Where can we read real API traffic? (the tool only reads aggregated counts: method, path, status)');
     SOURCES.forEach((s, i) => say(`  ${String(i + 1).padStart(2)}. ${s.label}${s.verified ? '  ✓ verified' : ''}${s.id === rec ? '  ← suggested' : ''}`));

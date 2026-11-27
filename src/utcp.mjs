@@ -4,6 +4,7 @@
 // arguments substituted via UTCP_ARG_<name>_UTCP_END. Tested with utcp 1.2.0 + utcp-cli 1.1.5 (Python).
 
 import { fileURLToPath } from 'node:url';
+import { VERSION } from './dist.mjs';
 
 const BIN = fileURLToPath(new URL('../bin/api-dead-ends.mjs', import.meta.url));
 // Arguments are single-quoted; values containing a single quote are not supported (experimental).
@@ -21,7 +22,7 @@ export function utcpManual() {
   });
   return {
     utcp_version: '1.0.0',
-    manual_version: '0.2.0',
+    manual_version: VERSION,
     tools: [
       tool('detect_project', 'Read-only scan of a repository: services, languages, frameworks, specs, observability hints.', { path: s('Repository root') }, `${cmd} detect ${arg('path')}`),
       tool('setup_plan', 'Commands per service for a traffic source. Writes nothing.', { path: s('Repository root'), source: s('elasticsearch, datadog-apm, datadog, prometheus, loki, appinsights, cloudwatch, newrelic, dynatrace, splunk, accesslog, csv, none') },

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- `report.html`: the 5xx share says "over threshold" / "below threshold" next to the number (not colour only); short sparkline labels (total, peak day, last N days); font sizes in rem; Windows High Contrast (`forced-colors`) styles. Checked with axe-core (0 violations), a keyboard run and Chromium forced-colours emulation.
+- `report.md` has per-day tables (calls and 5xx) for endpoints with 5xx or spikes; `report.json` gets `perDay` for every endpoint when the data has days.
+- `-o -` writes to stdout for every command (no file named `-`); `spec from-*` and `convert -o` now write through the same symlink-safe writer as the rest; clearer errors when the target is a directory or a symlink.
+- `init`: NEXT-STEPS no longer says `probe` is unavailable; a warning when `--source` is not what the service's manifests show.
+- README badges have meaningful alt text; Node badge added.
+- The UTCP manual version follows the package version; a test checks every pinned version in the docs and the plugin manifest.
 - `report.html` accessibility: WAI-ARIA tabs with arrow keys, Home and End; Overview tiles and "Look at first" rows are keyboard buttons; focus kept after redraws; visible focus outline; table captions and header scope; text alternative for sparklines; `aria-pressed` on the time window; text colours raised to WCAG AA 4.5:1 in light and dark mode (checked with axe-core: 0 violations). See ACCESSIBILITY.md.
 - GitHub community files: code of conduct, contributing, issue and PR templates, accessibility statement.
 
