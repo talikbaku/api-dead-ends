@@ -23,7 +23,7 @@ OpenAPI vs real traffic: compares your spec (or your framework's route list) wit
 Set up api-dead-ends for me (https://github.com/talikbaku/api-dead-ends) — a local CLI and MCP server (never changes code) that compares my OpenAPI spec (or route list) with real traffic and lists endpoints with errors, endpoints not called in the window, and undocumented (shadow) endpoints.
 1. Check Node.js >= 20 (22+ recommended); tell me how to install it if missing.
 2. Claude Code: /plugin marketplace add talikbaku/api-dead-ends then /plugin install api-dead-ends@api-dead-ends-marketplace
-   Cursor or another MCP client: add server "ade" = {"command":"npx","args":["-y","api-dead-ends@0.2.0","mcp"]}
+   Cursor or another MCP client: add server "ade" = {"command":"npx","args":["-y","api-dead-ends@0.2.1","mcp"]}
 3. Run detect_project, tell me which services, specs and traffic sources you found, and ask what's missing in one block.
 4. Rules: never paste raw logs into the chat, never call non-GET endpoints in production, never call an endpoint "dead" — "not called" is only a hint.
 Short docs: https://github.com/talikbaku/api-dead-ends/blob/main/llms.txt
@@ -152,7 +152,7 @@ From the synthetic demo in [`examples/`](examples/) — [full report](examples/r
 **Cursor, VS Code, Windsurf, Claude Desktop** — any MCP client:
 
 ```json
-{ "mcpServers": { "ade": { "command": "npx", "args": ["-y", "api-dead-ends@0.2.0", "mcp"] } } }
+{ "mcpServers": { "ade": { "command": "npx", "args": ["-y", "api-dead-ends@0.2.1", "mcp"] } } }
 ```
 
 Seven tools: `detect_project`, `setup_plan`, `build_query`, `spec_from_routes`, `analyze_usage` read inside the working directory; `init` and `write_report` write only `api-dead-ends.config.json` and files under `.api-dead-ends/` (never your code, never an existing file outside it).
@@ -194,7 +194,7 @@ All data in `examples/` is synthetic.
 
 ## 📚 More
 
-**Status:** v0.2.0. [docs/MORE.md](docs/MORE.md) — all flags, thresholds, path templating, framework route lists, no-logs options, FAQ · [docs/SOURCES.md](docs/SOURCES.md) — every source · [docs/MCP.md](docs/MCP.md) · [docs/SECURITY.md](docs/SECURITY.md) · [CHANGELOG.md](CHANGELOG.md) · [CONTRIBUTING.md](CONTRIBUTING.md) · [ACCESSIBILITY.md](ACCESSIBILITY.md)
+**Status:** v0.2.1. [docs/MORE.md](docs/MORE.md) — all flags, thresholds, path templating, framework route lists, no-logs options, FAQ · [docs/SOURCES.md](docs/SOURCES.md) — every source · [docs/MCP.md](docs/MCP.md) · [docs/SECURITY.md](docs/SECURITY.md) · [CHANGELOG.md](CHANGELOG.md) · [CONTRIBUTING.md](CONTRIBUTING.md) · [ACCESSIBILITY.md](ACCESSIBILITY.md)
 
 **Try it on your traffic and tell me what broke** — [open an issue](https://github.com/talikbaku/api-dead-ends/issues). Useful? ⭐ Star the repo.
 

@@ -28,5 +28,5 @@ Error texts (`--errors`) are free text from your logs. They are masked (UUIDs, n
 ## Recommendations for users
 
 - Use Node.js 22 or 24 (Node 20 is end-of-life).
-- Pin the version in MCP configs (`api-dead-ends@0.2.0`), never an unpinned `npx`.
+- Pin the version in MCP configs (`api-dead-ends@0.2.1`), never an unpinned `npx`.
 - Delete raw `response.json` exports after `convert`; review `usage.csv` / reports before sharing — a secret made only of lowercase letters in a URL path cannot be told apart from a word.

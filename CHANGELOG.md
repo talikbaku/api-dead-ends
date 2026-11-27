@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.1 — 2026-11-27
 
 - `report.html`: the 5xx share says "over threshold" / "below threshold" next to the number (not colour only); short sparkline labels (total, peak day, last N days); font sizes in rem; Windows High Contrast (`forced-colors`) styles. Checked with axe-core (0 violations), a keyboard run and Chromium forced-colours emulation.
 - `report.md` has per-day tables (calls and 5xx) for endpoints with 5xx or spikes; `report.json` gets `perDay` for every endpoint when the data has days.

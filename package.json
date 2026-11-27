@@ -1,6 +1,6 @@
 {
   "name": "api-dead-ends",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Find API endpoints that fail, are never called, or are missing from your OpenAPI spec — from logs and metrics you already have. Shadow & zombie API inventory. Read-only CLI, MCP server, UTCP manual, Claude Code plugin.",
   "keywords": [
     "openapi",

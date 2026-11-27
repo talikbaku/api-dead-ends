@@ -5,8 +5,8 @@
 ## Install
 - CLI: `npx api-dead-ends init` (Node.js >= 20, 22+ recommended, zero dependencies)
 - Claude Code: `/plugin marketplace add talikbaku/api-dead-ends` then `/plugin install api-dead-ends@api-dead-ends-marketplace`
-- MCP client: `{"mcpServers":{"ade":{"command":"npx","args":["-y","api-dead-ends@0.2.0","mcp"]}}}`
-- UTCP client: manual from `npx -y api-dead-ends@0.2.0 utcp` (cli call template)
+- MCP client: `{"mcpServers":{"ade":{"command":"npx","args":["-y","api-dead-ends@0.2.1","mcp"]}}}`
+- UTCP client: manual from `npx -y api-dead-ends@0.2.1 utcp` (cli call template)
 
 ## Main commands
 - `init` — scan repo, ask questions, write `.api-dead-ends/NEXT-STEPS.md` (`--yes`, `--json`, `--dry-run`, `--source`, `--service`, `--spec`, `--routes`, `--logs`, `--days`)
