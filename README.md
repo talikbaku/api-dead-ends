@@ -12,6 +12,15 @@
 
 OpenAPI vs real traffic: compares your spec (or your framework's route list) with request counts from your logs, APM or metrics, and finds unused API endpoints, endpoints not called in production, shadow APIs and zombie APIs — an API inventory from facts. Local, never changes your code, zero dependencies, any language.
 
+**Install** (Node.js 20+, no dependencies):
+
+```bash
+npx api-dead-ends init          # CLI: scans your repo and writes the next steps
+npm install -g api-dead-ends    # or install it globally
+```
+
+Claude Code: `/plugin marketplace add talikbaku/api-dead-ends` → `/plugin install api-dead-ends@api-dead-ends-marketplace` · MCP clients: `npx -y api-dead-ends@0.3.0 mcp` ([setup](#ai-agents-mcp-utcp)) · also in the [MCP Registry](https://registry.modelcontextprotocol.io) as `io.github.talikbaku/api-dead-ends`.
+
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/talikbaku/api-dead-ends/main/docs/media/report-dark.svg">
   <img src="https://raw.githubusercontent.com/talikbaku/api-dead-ends/main/docs/media/report-light.svg" width="720" alt="api-dead-ends in a terminal: recent 5xx spikes, endpoints with server errors, undocumented endpoints, endpoints not called in 30 days, and deprecated endpoints that are still called">
@@ -66,7 +75,6 @@ flowchart LR
 ## Quick start
 
 Node.js 20+ (22+ recommended). No install, no dependencies.
-
 
 ```bash
 npx api-dead-ends init
