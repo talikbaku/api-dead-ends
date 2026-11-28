@@ -54,7 +54,7 @@ All paths must stay inside the server's working directory (symlinks resolved). C
 
 ## MCP Registry
 
-**Status: not published yet.** `server.json` at the repo root is prepared for the official [MCP Registry](https://registry.modelcontextprotocol.io) (schema `2025-12-11`). The registry stores only metadata; it checks that `name` in `server.json` equals `mcpName` in the npm package's `package.json`, so the npm release must be published first. `server.json` itself does not need to be in the npm package.
+**Status: published** as `io.github.talikbaku/api-dead-ends` (0.3.0). `server.json` at the repo root is the entry for the official [MCP Registry](https://registry.modelcontextprotocol.io) (schema `2025-12-11`). The registry stores only metadata; it checks that `name` in `server.json` equals `mcpName` in the npm package's `package.json`, so the npm release must be published first. `server.json` itself does not need to be in the npm package.
 
 On each release, `version` and `packages[0].version` in `server.json` must equal the `package.json` version (a test checks this). To publish, the owner runs, after the npm release of the same version:
 
